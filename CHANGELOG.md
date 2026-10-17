@@ -2,6 +2,12 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，版本号维护在 `package.json`。
 
+## [1.0.1] - 2026-10-17
+
+### 修复
+
+- 手机端吸顶标签栏被背景地球的固定拖拽层与热区遮挡，导致「策略与纪律」等标签无法点击；触摸设备上禁用地球命中测试并隐藏提示框，桌面端交互保持不变。
+
 ## [1.0.0] - 2026-10-17
 
 首个开源版本。
@@ -27,4 +33,5 @@
 - 行情为日线收盘或延迟数据，不是实时报价。
 - 所有指标只描述历史数据，不构成投资建议。
 
+[1.0.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.1
 [1.0.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.0

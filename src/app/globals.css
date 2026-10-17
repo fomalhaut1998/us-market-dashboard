@@ -455,6 +455,21 @@ body {
   }
 }
 
+/*
+ * 触屏上地球只是氛围装饰：固定定位的拖拽层与热区会盖住吸顶的标签栏，
+ * 导致「策略与纪律」等标签点不动。禁用其命中测试，确保点击落到页面控件上。
+ */
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  .ambient-trading-globe__drag-surface,
+  .ambient-trading-location__hotspot {
+    pointer-events: none !important;
+  }
+
+  .ambient-trading-globe__tooltip-layer {
+    display: none;
+  }
+}
+
 @layer base {
   /* 放进 base 层：Tailwind 的 text-* 等 utility 才能覆盖按钮字号（在 @layer 外声明会压过所有 utility）。 */
   button {
