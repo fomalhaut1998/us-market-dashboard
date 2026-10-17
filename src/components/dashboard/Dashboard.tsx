@@ -9,6 +9,8 @@ import {
 import type { DashboardPayload, DashboardTabId } from "@/types/dashboard";
 import { IndexView } from "./IndexView";
 import { MarketFlowBackdrop } from "./MarketFlowBackdrop";
+import { ProjectBadge } from "./ProjectBadge";
+import { ProjectFooter } from "./ProjectFooter";
 import { SectionCard } from "./SectionCard";
 import { SentimentView } from "./SentimentView";
 import { StrategyView } from "./StrategyView";
@@ -126,6 +128,8 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
 
     const cached = readCachedDashboard();
     if (cached) {
+      // 缓存只能在挂载后读取（服务端没有 localStorage），这是有意的一次性 hydration 补位。
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setData(cached.payload);
       setCachedAt(cached.savedAt);
       setLoading(false);
@@ -175,7 +179,7 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
       <div className="relative z-10 mx-auto w-full max-w-[1180px]">
         <header>
           <div className="flex items-start justify-between gap-3 sm:items-center">
-            <h1 className="text-[1.72rem] font-black tracking-[-0.035em] text-ink sm:text-[2.15rem] lg:text-[2.45rem]">
+            <h1 className="min-w-0 break-words text-[1.55rem] font-black tracking-[-0.035em] text-ink sm:text-[2.15rem] lg:text-[2.45rem]">
               {dashboardMeta.title}
             </h1>
             <div className="hidden items-center gap-2 sm:flex">
@@ -203,17 +207,20 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
               <span className="h-2.5 w-2.5 shrink-0 rounded-full bg-[#4c8df5] shadow-[0_0_0_5px_rgba(76,141,245,0.09)]" aria-hidden="true" />
               {dashboardMeta.scheduleBadge}
             </p>
-            <div className="flex shrink-0 items-center gap-2 self-end sm:hidden">
-              <button
-                type="button"
-                onClick={() => void refreshData()}
-                disabled={refreshing}
-                aria-busy={refreshing}
-                className="h-10 shrink-0 whitespace-nowrap rounded-full border border-line bg-surface px-3.5 text-xs font-bold text-brand shadow-[var(--shadow-tab)] outline-none disabled:cursor-wait disabled:opacity-60 focus-visible:ring-4 focus-visible:ring-brand/25"
-              >
-                {refreshing ? "刷新中…" : "刷新数据"}
-              </button>
-              <ThemeToggle />
+            <div className="flex shrink-0 items-center gap-2 self-end">
+              <ProjectBadge />
+              <div className="flex items-center gap-2 sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => void refreshData()}
+                  disabled={refreshing}
+                  aria-busy={refreshing}
+                  className="h-10 shrink-0 whitespace-nowrap rounded-full border border-line bg-surface px-3.5 text-xs font-bold text-brand shadow-[var(--shadow-tab)] outline-none disabled:cursor-wait disabled:opacity-60 focus-visible:ring-4 focus-visible:ring-brand/25"
+                >
+                  {refreshing ? "刷新中…" : "刷新数据"}
+                </button>
+                <ThemeToggle />
+              </div>
             </div>
           </div>
         </header>
@@ -264,18 +271,7 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
           </p>
         ) : null}
 
-        <footer className="space-y-1 pb-2 pt-8 text-center text-[0.72rem] leading-5 text-tertiary sm:space-y-0 sm:pt-10 sm:text-xs">
-          <span className="block">
-            数据来源：行情 Twelve Data（限流或失败时自动切换 Nasdaq / FMP 备用源）；波动率与期权数据
-            Cboe；情绪 CNN Fear &amp; Greed；估值 Multpl 月度非估算值；信用利差 FRED
-          </span>
-          <span className="block">
-            口径：全部取最近一个交易日收盘，服务端缓存 30 分钟；PE 为月度数据，滞后超过 45 天只标注、不参与倍率计算
-          </span>
-          <span className="block">
-            本页只是把固定规则按阈值算给你看，不构成投资建议；规则与阈值见「策略与纪律」与情绪页的指标说明
-          </span>
-        </footer>
+        <ProjectFooter />
       </div>
     </main>
   );

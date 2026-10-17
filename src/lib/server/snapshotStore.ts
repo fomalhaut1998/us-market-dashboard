@@ -156,7 +156,7 @@ export async function recordDashboardSnapshot(input: DashboardSnapshotInput): Pr
   writeChain = task.catch(() => undefined);
   try {
     return await task;
-  } catch (error) {
+  } catch {
     return {
       written: false,
       reason: "error",

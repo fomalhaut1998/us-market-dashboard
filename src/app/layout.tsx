@@ -1,11 +1,60 @@
 import type { Metadata, Viewport } from "next";
+import { siteConfig } from "@/config/site";
 import "./globals.css";
 
+const description =
+  "把美股指数、VIX 期限结构、恐惧贪婪、估值分位、市场宽度与信用利差放在同一屏，并按固定规则给出定投倍率提示。仅供研究参考，不构成投资建议。";
+
 export const metadata: Metadata = {
-  title: "美股估值与情绪监控看板",
-  description: "使用服务端获取的真实日线、估值与市场情绪数据展示美股监控指标。",
+  metadataBase: new URL(siteConfig.liveDemo),
+  title: {
+    default: siteConfig.name,
+    template: `%s · ${siteConfig.name}`,
+  },
+  description,
+  applicationName: siteConfig.name,
+  authors: [{ name: siteConfig.author, url: siteConfig.repository }],
+  creator: siteConfig.author,
+  publisher: siteConfig.author,
+  category: "finance",
+  keywords: [
+    "美股",
+    "估值",
+    "VIX",
+    "恐惧贪婪指数",
+    "市场宽度",
+    "信用利差",
+    "定投倍率",
+    "开源看板",
+  ],
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    locale: "zh_CN",
+    url: "/",
+    siteName: siteConfig.name,
+    title: siteConfig.name,
+    description,
+    images: [
+      {
+        url: "/assets/og-cover.png",
+        width: 1200,
+        height: 630,
+        alt: `${siteConfig.name} 页面预览`,
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteConfig.name,
+    description,
+    images: ["/assets/og-cover.png"],
+  },
   icons: {
     icon: "/assets/trading-globe.png",
+    apple: "/assets/trading-globe.png",
   },
 };
 
