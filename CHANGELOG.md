@@ -2,6 +2,14 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，版本号维护在 `package.json`。
 
+## [1.1.0] - 2026-10-18
+
+### 新增
+
+- 新的站点图标：地球轮廓叠加向上行情线，提供 SVG、192 / 512 PNG、Apple Touch Icon 与多尺寸 `favicon.ico`。
+- 页头标题左侧加入品牌标记（桌面 48px、移动端 40px），窄屏下随标题自动换行。
+- 浏览器标签页、iOS 主屏与站点元信息统一使用新图标。
+
 ## [1.0.2] - 2026-10-18
 
 ### 修复
@@ -39,6 +47,7 @@
 - 行情为日线收盘或延迟数据，不是实时报价。
 - 所有指标只描述历史数据，不构成投资建议。
 
+[1.1.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.0
 [1.0.2]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.2
 [1.0.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.1
 [1.0.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.0

@@ -13,6 +13,7 @@ import { ProjectBadge } from "./ProjectBadge";
 import { ProjectFooter } from "./ProjectFooter";
 import { SectionCard } from "./SectionCard";
 import { SentimentView } from "./SentimentView";
+import { SiteMark } from "./SiteMark";
 import { StrategyView } from "./StrategyView";
 import { Tabs } from "./Tabs";
 import { ThemeToggle } from "./ThemeToggle";
@@ -179,9 +180,12 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
       <div className="relative z-10 mx-auto w-full max-w-[1180px]">
         <header>
           <div className="flex items-start justify-between gap-3 sm:items-center">
-            <h1 className="min-w-0 break-words text-[1.55rem] font-black tracking-[-0.035em] text-ink sm:text-[2.15rem] lg:text-[2.45rem]">
-              {dashboardMeta.title}
-            </h1>
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3.5">
+              <SiteMark className="h-10 w-10 shrink-0 drop-shadow-[0_7px_14px_rgba(23,52,130,0.24)] sm:h-12 sm:w-12" />
+              <h1 className="min-w-0 break-words text-[1.55rem] font-black tracking-[-0.035em] text-ink sm:text-[2.15rem] lg:text-[2.45rem]">
+                {dashboardMeta.title}
+              </h1>
+            </div>
             <div className="hidden items-center gap-2 sm:flex">
               <button
                 type="button"

@@ -1,6 +1,6 @@
 {
   "name": "us-stock-sentiment-dashboard",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "private": true,
   "description": "美股估值与情绪监控看板：指数行情、VIX 期限结构、恐惧贪婪、估值分位、市场宽度、信用利差与定投倍率提示。",
   "license": "MIT",

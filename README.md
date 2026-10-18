@@ -69,6 +69,7 @@
 - 数据源失败时自动回退并显示提示；缺失指标不会用模拟值填充。
 - 浏览器端缓存上一次成功读取的数据，冷启动时先展示旧数据再后台更新。
 - 页头与页脚展示开源仓库、版本号、发布记录与许可信息。
+- 统一的站点图标（SVG / PNG / Apple Touch Icon）与页头品牌标记。
 
 ## 在线演示
 
@@ -241,6 +242,7 @@ src/data                  文案、地球点云等静态数据
 src/lib                   指标计算与策略判断
 src/lib/server            取数、缓存、备用源、数据组装与快照
 src/types                 数据类型
+public/assets             站点图标、地球底图与社媒封面
 docs/screenshots          README 截图
 data/snapshots.jsonl      运行时生成的倍率快照（gitignored）
 ```
@@ -289,7 +291,7 @@ Multpl 的 PE 是月度数据，不是每日更新。滞后超过 45 天时页�
 
 ## 版本与发布
 
-当前版本 **v1.0.2**（2026-10-18）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
+当前版本 **v1.1.0**（2026-10-18）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
 
 - 发布记录：<https://github.com/fomalhaut1998/us-market-dashboard/releases>
 - 变更历史：[CHANGELOG.md](CHANGELOG.md)
