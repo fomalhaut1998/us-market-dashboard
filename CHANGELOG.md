@@ -2,6 +2,12 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，版本号维护在 `package.json`。
 
+## [1.0.2] - 2026-10-18
+
+### 修复
+
+- 移动端页面切到后台或锁屏较久后，浏览器可能回收地球画布的后备存储，回到页面时地球变成空白；现在会在 `visibilitychange`、`pageshow` 与 `contextrestored` 时补画，并增加 60 秒兜底重绘。
+
 ## [1.0.1] - 2026-10-17
 
 ### 修复
@@ -33,5 +39,6 @@
 - 行情为日线收盘或延迟数据，不是实时报价。
 - 所有指标只描述历史数据，不构成投资建议。
 
+[1.0.2]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.2
 [1.0.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.1
 [1.0.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.0

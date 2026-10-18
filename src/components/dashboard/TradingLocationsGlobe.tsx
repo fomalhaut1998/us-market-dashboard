@@ -349,7 +349,28 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    let redrawTimer: number | null = null;
     const renderCurrentView = () => renderGlobe(viewRef.current);
+    // 移动端切后台或锁屏后，浏览器可能回收 canvas 的后备存储；回到前台时补画一次。
+    const scheduleRedraw = () => {
+      if (redrawTimer !== null) window.clearTimeout(redrawTimer);
+      redrawTimer = window.setTimeout(() => {
+        redrawTimer = null;
+        renderCurrentView();
+      }, 120);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") scheduleRedraw();
+    };
+    const handleContextLost = (event: Event) => {
+      event.preventDefault();
+    };
+
+    // 兜底：部分移动浏览器在页面可见时也可能回收 canvas，定时补画一次。
+    const redrawWatchdog = window.setInterval(() => {
+      if (document.visibilityState === "visible") scheduleRedraw();
+    }, 60_000);
+
     const resizeObserver = new ResizeObserver(renderCurrentView);
     const themeObserver = new MutationObserver(renderCurrentView);
 
@@ -358,11 +379,23 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
       attributes: true,
       attributeFilter: ["data-theme"],
     });
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pageshow", scheduleRedraw);
+    canvas.addEventListener("contextlost", handleContextLost);
+    canvas.addEventListener("contextrestored", scheduleRedraw);
     renderCurrentView();
+    // 挂载时布局可能还没稳定；补画一次，避免首次尺寸为 0 时留下空白画布。
+    scheduleRedraw();
 
     return () => {
       resizeObserver.disconnect();
       themeObserver.disconnect();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pageshow", scheduleRedraw);
+      canvas.removeEventListener("contextlost", handleContextLost);
+      canvas.removeEventListener("contextrestored", scheduleRedraw);
+      window.clearInterval(redrawWatchdog);
+      if (redrawTimer !== null) window.clearTimeout(redrawTimer);
       stopInertia();
     };
   }, [renderGlobe, stopInertia]);
