@@ -472,6 +472,8 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
       data-view-latitude={INITIAL_VIEW.latitude.toFixed(2)}
     >
       <canvas ref={canvasRef} className="ambient-trading-globe__visual" aria-hidden="true" />
+      {/* 移动端用静态位图兜底：浏览器长时间挂起后可能回收 canvas 后备存储，导致整块画布变灰。 */}
+      <div className="ambient-trading-globe__still" aria-hidden="true" />
 
       <div className="ambient-trading-globe__markers" aria-hidden="true">
         {locations.map((location) => {

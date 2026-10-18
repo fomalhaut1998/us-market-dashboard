@@ -291,7 +291,7 @@ Multpl 的 PE 是月度数据，不是每日更新。滞后超过 45 天时页�
 
 ## 版本与发布
 
-当前版本 **v1.1.0**（2026-10-18）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
+当前版本 **v1.1.1**（2026-10-18）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
 
 - 发布记录：<https://github.com/fomalhaut1998/us-market-dashboard/releases>
 - 变更历史：[CHANGELOG.md](CHANGELOG.md)

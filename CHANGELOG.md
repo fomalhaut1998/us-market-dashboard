@@ -2,6 +2,12 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，版本号维护在 `package.json`。
 
+## [1.1.1] - 2026-10-18
+
+### 修复
+
+- 手机端页面长时间切到后台再返回时，背景地球可能整块变灰或空白。触屏端改为与画布同尺寸、同初始视角的静态 WebP 位图，不再依赖会被浏览器回收的 canvas 后备存储；桌面端保留可拖动的 canvas 地球。
+
 ## [1.1.0] - 2026-10-18
 
 ### 新增
@@ -47,6 +53,7 @@
 - 行情为日线收盘或延迟数据，不是实时报价。
 - 所有指标只描述历史数据，不构成投资建议。
 
+[1.1.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.1
 [1.1.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.0
 [1.0.2]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.2
 [1.0.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.1
