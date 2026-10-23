@@ -131,13 +131,14 @@ npm run start
 | 数据 | 来源 | 说明 |
 | --- | --- | --- |
 | 指数 / ETF 行情 | Twelve Data → Nasdaq → Financial Modeling Prep | 依次回退；Twelve Data 返回 429 后冷却 5 分钟，再失败则使用最近一次成功的数据。 |
-| VIX、SKEW、VVIX | Cboe | 官方日线收盘。 |
+| VIX | Cboe / Yahoo Finance | 日线历史用 Cboe 官方收盘；盘中现价用 Yahoo Finance，失败时回退 Cboe 延迟报价（约 15–20 分钟）。 |
+| SKEW、VVIX | Cboe | 官方日线收盘。 |
 | 恐惧贪婪 | CNN | 公开页面上的当前分数。 |
 | 标普 500 PE | Multpl | 月度数据，只取非估算值；滞后超过 45 天时只标注、不参与倍率计算。 |
 | 高收益债 OAS | FRED | `BAMLH0A0HYM2`，T+1 公布的日频数据。 |
 | 市场宽度 | RSP / SPY | RSP 行情单独缓存 2 小时；SPY 走整页 30 分钟缓存。 |
 
-所有行情都是日线收盘或延迟数据，**不是实时报价**。仓库不附带行情数据，运行时从上述公开来源获取；使用前请遵守各数据源的条款。
+除 VIX 盘中报价外，所有行情都是日线收盘或延迟数据，**不是实时报价**；VIX 盘中报价本身也有约 15–20 分钟延迟。仓库不附带行情数据，运行时从上述公开来源获取；使用前请遵守各数据源的条款。
 
 ## 指标与倍率规则
 
@@ -287,11 +288,11 @@ Multpl 的 PE 是月度数据，不是每日更新。滞后超过 45 天时页�
 
 **数据是实时的吗？**
 
-不是。全部取最近一个交易日收盘或延迟数据，服务端缓存 30 分钟；页面顶部会显示最后更新时间和缓存说明。
+不是。VIX 盘中报价是约 15–20 分钟的延迟现价，点「刷新数据」更新；其余行情取最近一个交易日收盘或延迟数据，服务端缓存 30 分钟。页面顶部会显示最后更新时间和缓存说明。
 
 ## 版本与发布
 
-当前版本 **v1.1.1**（2026-10-18）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
+当前版本 **v1.1.2**（2026-10-23）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
 
 - 发布记录：<https://github.com/fomalhaut1998/us-market-dashboard/releases>
 - 变更历史：[CHANGELOG.md](CHANGELOG.md)

@@ -9,9 +9,21 @@ import type {
   TailRiskData,
   TermStructureData,
   TermStructureState,
+  VixQuoteData,
+  VixQuoteSession,
 } from "@/types/market";
 
 const CBOE_INDEX_BASE_URL = "https://cdn.cboe.com/api/global/us_indices/daily_prices";
+const YAHOO_VIX_CHART_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX?interval=1m&range=1d&includePrePost=true";
+const CBOE_VIX_QUOTE_URL = "https://cdn.cboe.com/api/global/delayed_quotes/quotes/_VIX.json";
+/** 盘中报价刷新频率：比整页 30 分钟缓存短，整页缓存重建时能拿到较新的 VIX。 */
+const VIX_QUOTE_CACHE_SECONDS = 60;
+const VIX_QUOTE_HEADERS = {
+  Accept: "application/json",
+  "User-Agent":
+    "Mozilla/5.0 (compatible; us-market-dashboard; +https://github.com/fomalhaut1998/us-market-dashboard)",
+} as const;
 
 const CBOE_FILES = {
   vix: "VIX_History.csv",
@@ -172,6 +184,190 @@ export async function fetchCboeVixHistory(forceRefresh: boolean): Promise<Market
 export async function resolveVixSeries(primary: MarketSeries, forceRefresh: boolean) {
   if (primary.bars.length > 0) return primary;
   return fetchCboeVixHistory(forceRefresh);
+}
+
+export interface VixQuoteResult {
+  quote: VixQuoteData | null;
+  error: string | null;
+}
+
+interface YahooVixChartResponse {
+  chart?: {
+    result?: Array<{
+      meta?: {
+        regularMarketPrice?: number;
+        regularMarketTime?: number;
+        chartPreviousClose?: number;
+        previousClose?: number;
+        regularMarketChangePercent?: number;
+      };
+    }>;
+  };
+}
+
+interface CboeVixQuoteResponse {
+  timestamp?: string;
+  data?: {
+    current_price?: number;
+    prev_day_close?: number;
+    close?: number;
+  };
+}
+
+function resolveUsSession(now = new Date()): { session: VixQuoteSession; label: string } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? "";
+  const weekday = part("weekday");
+  const hour = Number(part("hour"));
+  const minute = Number(part("minute"));
+
+  if (weekday === "Sat" || weekday === "Sun") return { session: "closed", label: "最近收盘" };
+
+  const minutes = hour * 60 + minute;
+  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return { session: "regular", label: "盘中" };
+  return { session: "closed", label: "最近收盘" };
+}
+
+function quoteKind(session: VixQuoteSession) {
+  if (session === "regular") return "盘中延迟约15–20分钟";
+  return "最近收盘（延迟）";
+}
+
+function formatEtQuoteTime(iso: string) {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  const formatted = new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  })
+    .format(parsed)
+    .replaceAll("/", "-");
+  return `${formatted} 美东`;
+}
+
+/** 盘中但报价超过 60 分钟没更新时，按最近收盘标记，避免把昨天的收盘说成盘中价。 */
+function settleQuoteSession(
+  market: { session: VixQuoteSession; label: string },
+  quoteTime: string,
+): { session: VixQuoteSession; label: string } {
+  if (market.session !== "regular") return market;
+  const age = Date.now() - new Date(quoteTime).getTime();
+  if (Number.isFinite(age) && age > 60 * 60 * 1000) {
+    return { session: "closed", label: "最近收盘" };
+  }
+  return market;
+}
+
+function parseCboeQuoteTime(value: string | undefined) {
+  if (!value) return new Date().toISOString();
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const withZone = /[zZ]|[+-]\d{2}:?\d{2}$/.test(normalized) ? normalized : `${normalized}Z`;
+  const parsed = new Date(withZone);
+  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+}
+
+async function fetchYahooVixQuote(forceRefresh: boolean): Promise<VixQuoteData> {
+  const response = await fetch(YAHOO_VIX_CHART_URL, {
+    headers: VIX_QUOTE_HEADERS,
+    ...(forceRefresh ? { cache: "no-store" as const } : { next: { revalidate: VIX_QUOTE_CACHE_SECONDS } }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const payload = (await response.json()) as YahooVixChartResponse;
+  const meta = payload.chart?.result?.[0]?.meta;
+  const value = Number(meta?.regularMarketPrice);
+  const quoteTimeSeconds = Number(meta?.regularMarketTime);
+  if (!Number.isFinite(value) || value <= 0) throw new Error("返回中没有有效的 regularMarketPrice");
+  if (!Number.isFinite(quoteTimeSeconds) || quoteTimeSeconds <= 0) {
+    throw new Error("返回中没有有效的 regularMarketTime");
+  }
+
+  const previousCloseValue = Number(meta?.chartPreviousClose ?? meta?.previousClose);
+  const previousClose = Number.isFinite(previousCloseValue) && previousCloseValue > 0 ? previousCloseValue : null;
+  const changePercent =
+    previousClose !== null
+      ? (value / previousClose - 1) * 100
+      : Number.isFinite(Number(meta?.regularMarketChangePercent))
+        ? Number(meta?.regularMarketChangePercent)
+        : null;
+  const quoteTime = new Date(quoteTimeSeconds * 1000).toISOString();
+  const market = settleQuoteSession(resolveUsSession(), quoteTime);
+
+  return {
+    value,
+    previousClose,
+    changePercent,
+    quoteTime,
+    quoteTimeLabel: formatEtQuoteTime(quoteTime),
+    session: market.session,
+    sessionLabel: market.label,
+    source: "Yahoo Finance",
+    dataKind: quoteKind(market.session),
+  };
+}
+
+async function fetchCboeVixQuote(forceRefresh: boolean): Promise<VixQuoteData> {
+  const response = await fetch(CBOE_VIX_QUOTE_URL, {
+    headers: VIX_QUOTE_HEADERS,
+    ...(forceRefresh ? { cache: "no-store" as const } : { next: { revalidate: VIX_QUOTE_CACHE_SECONDS } }),
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+  const payload = (await response.json()) as CboeVixQuoteResponse;
+  const value = Number(payload.data?.current_price);
+  if (!Number.isFinite(value) || value <= 0) throw new Error("返回中没有有效的 current_price");
+
+  const previousCloseValue = Number(payload.data?.prev_day_close ?? payload.data?.close);
+  const previousClose = Number.isFinite(previousCloseValue) && previousCloseValue > 0 ? previousCloseValue : null;
+  const quoteTime = parseCboeQuoteTime(payload.timestamp);
+  const market = settleQuoteSession(resolveUsSession(), quoteTime);
+
+  return {
+    value,
+    previousClose,
+    changePercent: previousClose !== null ? (value / previousClose - 1) * 100 : null,
+    quoteTime,
+    quoteTimeLabel: formatEtQuoteTime(quoteTime),
+    session: market.session,
+    sessionLabel: market.label,
+    source: "Cboe 延迟报价",
+    dataKind: market.session === "regular" ? "Cboe 延迟盘中（时间取抓取时刻）" : quoteKind(market.session),
+  };
+}
+
+/**
+ * 取 VIX 盘中报价：Yahoo 的 chart meta 带真实报价时间，作为首选；
+ * Cboe 官方 delayed_quotes 只作兜底（它的 last_trade_time 对指数不更新，不能拿来当报价时间）。
+ * 两条都失败时返回 null，调用方回退到日线收盘，并在 notices 里说明。
+ */
+export async function fetchVixQuote(forceRefresh: boolean): Promise<VixQuoteResult> {
+  const [yahoo, cboe] = await Promise.allSettled([
+    fetchYahooVixQuote(forceRefresh),
+    fetchCboeVixQuote(forceRefresh),
+  ]);
+
+  if (yahoo.status === "fulfilled") return { quote: yahoo.value, error: null };
+  if (cboe.status === "fulfilled") return { quote: cboe.value, error: null };
+
+  const errorText = (reason: unknown) => (reason instanceof Error ? reason.message : "请求失败");
+  return {
+    quote: null,
+    error: `Yahoo Finance：${errorText(yahoo.reason)}；Cboe：${errorText(cboe.reason)}`,
+  };
 }
 
 export interface TermStructureInputs {

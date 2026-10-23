@@ -26,8 +26,8 @@ export type {
 
 export const dashboardMeta = {
   title: "美股估值与情绪监控看板",
-  updateSchedule: "使用最新日线收盘或延迟数据，服务端每 30 分钟缓存一次",
-  scheduleBadge: "真实数据 · 服务端缓存 30 分钟",
+  updateSchedule: "日线数据服务端缓存 30 分钟；VIX 盘中报价随刷新更新（延迟约 15 分钟）",
+  scheduleBadge: "真实数据 · 30 分钟缓存 · VIX 盘中延迟",
 };
 
 export const dashboardTabs: DashboardTab[] = [
@@ -163,7 +163,7 @@ export const signalGuideItems: SignalGuideItem[] = [
     name: "VIX（波动率指数）",
     meaning:
       "标普500未来 30 天的隐含波动率，由期权价格反推出来——本质是「恐慌保险」的报价：买保险的人越多、越急，它越高。",
-    calc: "Cboe 官方 VIX 指数日线收盘（CSV），服务端缓存 30 分钟。",
+    calc: "Cboe 官方 VIX 日线历史；盘中现价用 Yahoo Finance / Cboe 延迟报价（约 15 分钟），点击「刷新数据」更新。",
     bands: [
       { tone: "triggered", range: "≥ 30", label: "触发：市场已经在为恐慌付费" },
       { tone: "near", range: "25 – 30", label: "观察：情绪开始紧张" },

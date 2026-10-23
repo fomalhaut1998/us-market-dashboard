@@ -18,6 +18,30 @@ export interface MarketSeries {
   error: string | null;
 }
 
+/** VIX 指数没有可用的盘前/盘后连续报价，只区分交易时段与最近收盘。 */
+export type VixQuoteSession = "regular" | "closed";
+
+/**
+ * VIX 盘中报价：与日线序列分开保存。
+ *
+ * 日线 bars 仍用于期限结构、月末历史图等需要“收盘价”的计算；
+ * 这张卡片的当前值、信号判定和策略结论可以用盘中报价覆盖，避免盘中一直显示昨收。
+ */
+export interface VixQuoteData {
+  value: number;
+  previousClose: number | null;
+  changePercent: number | null;
+  /** 报价时间的 ISO 字符串（UTC）。 */
+  quoteTime: string;
+  /** 已格式化的美东时间，例如 “2026-10-23 09:25 美东”。 */
+  quoteTimeLabel: string;
+  session: VixQuoteSession;
+  sessionLabel: string;
+  source: string;
+  /** 例如 “盘中延迟约15–20分钟”。 */
+  dataKind: string;
+}
+
 export interface FearGreedData {
   score: number | null;
   rating: string | null;

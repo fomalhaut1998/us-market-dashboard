@@ -70,8 +70,8 @@ export function ProjectFooter() {
           <div>
             <dt className="font-bold text-muted">口径与缓存</dt>
             <dd className="mt-1">
-              全部取最近一个交易日收盘，服务端缓存 30 分钟；PE 为月度数据，滞后超过 45
-              天只标注、不参与倍率计算。
+              行情取最近一个交易日收盘（VIX 盘中为延迟报价，随刷新更新），服务端缓存 30
+              分钟；PE 为月度数据，滞后超过 45 天只标注、不参与倍率计算。
             </dd>
           </div>
         </dl>

@@ -2,6 +2,17 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，版本号维护在 `package.json`。
 
+## [1.1.2] - 2026-10-23
+
+### 新增
+
+- VIX 卡片支持盘中报价：交易时段内点「刷新数据」会显示 Yahoo Finance 的延迟现价（约 15–20 分钟），失败时回退 Cboe 延迟报价；策略页「市场情绪」同步显示盘中 VIX。
+- 页头缓存说明、页脚口径与 VIX 指标解释同步标明「日线缓存 + 盘中延迟报价」的双口径。
+
+### 说明
+
+- 日线历史、VIX 期限结构与 VIX / PE 历史图仍用 Cboe 日线收盘，不混入盘中价；非交易时段显示最近收盘。
+
 ## [1.1.1] - 2026-10-18
 
 ### 修复
@@ -53,6 +64,7 @@
 - 行情为日线收盘或延迟数据，不是实时报价。
 - 所有指标只描述历史数据，不构成投资建议。
 
+[1.1.2]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.2
 [1.1.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.1
 [1.1.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.0
 [1.0.2]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.0.2

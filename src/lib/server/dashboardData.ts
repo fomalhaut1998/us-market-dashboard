@@ -66,6 +66,7 @@ import type {
   TermStructureData,
   TermStructureState,
   ValuationData,
+  VixQuoteData,
 } from "@/types/market";
 import { buildBreadth, fetchBreadthInputs } from "./breadth";
 import { buildCreditSpread, fetchCreditSpreadInputs } from "./credit";
@@ -83,6 +84,7 @@ import {
   buildTermStructure,
   fetchCboeTailRiskInputs,
   fetchCboeTermStructureInputs,
+  fetchVixQuote,
   resolveVixSeries,
 } from "./vix";
 
@@ -348,7 +350,7 @@ function buildTermStructureView(data: TermStructureData): TermStructureView {
 
 function termStructureConclusionText(data: TermStructureData) {
   if (data.ratio === null) return "波动率期限结构：暂无数据";
-  return `9 天 / 30 天 / 3 个月 VIX ${formatNumber(data.vix9d, 2)} / ${formatNumber(data.vix30d, 2)} / ${formatNumber(data.vix3m, 2)}，30 天 ÷ 3 个月 ${data.ratio.toFixed(2)}×（${termStructureStateLabel(data.state)}）`;
+  return `9 天 / 30 天 / 3 个月 VIX ${formatNumber(data.vix9d, 2)} / ${formatNumber(data.vix30d, 2)} / ${formatNumber(data.vix3m, 2)}，30 天 ÷ 3 个月 ${data.ratio.toFixed(2)}×（${termStructureStateLabel(data.state)}）· 日线收盘口径`;
 }
 
 function tailRiskTone(percentile: number | null): StatusTone {
@@ -581,6 +583,7 @@ export function buildCreditSpreadView(data: CreditSpreadData): CreditSpreadView 
 
 function buildSentimentMetrics(args: {
   vix: MarketSeries;
+  vixQuote: VixQuoteData | null;
   fearGreed: FearGreedData;
   qqq: MarketSeries;
   spy: MarketSeries;
@@ -593,9 +596,13 @@ function buildSentimentMetrics(args: {
   spyMomentum: number | null;
 }) {
   const vixBar = latestBar(args.vix);
+  const vixValue = args.vixQuote?.value ?? vixBar?.close ?? null;
+  const vixDescription = args.vixQuote
+    ? `${args.vixQuote.source} · ${args.vixQuote.quoteTimeLabel} · ${args.vixQuote.dataKind}${args.vixQuote.changePercent === null ? "" : `（较前收 ${formatPercent(args.vixQuote.changePercent, 2, true)}）`}`
+    : `${args.vix.bars.length > 0 ? args.vix.source : "来源暂无数据"} · ${vixBar?.date ?? "时间暂无数据"} · ${args.vix.bars.length > 0 ? args.vix.dataKind : "暂不可用"}`;
   const qqqDate = latestBar(args.qqq)?.date ?? null;
   const signals = {
-    vix: evaluateSignal("vix", vixBar?.close ?? null),
+    vix: evaluateSignal("vix", vixValue),
     fearGreed: evaluateSignal("fearGreed", args.fearGreed.score),
     rsi6: evaluateSignal("rsi6", args.qqqRsi),
     pePercentile:
@@ -610,7 +617,7 @@ function buildSentimentMetrics(args: {
     {
       id: "vix",
       name: "VIX",
-      value: formatNumber(vixBar?.close ?? null, 2),
+      value: formatNumber(vixValue, 2),
       badgeLabel: badgeLabel(signals.vix.state),
       stateLabel: stateDescription(signals.vix.state, {
         triggered: "VIX：高波动买入机会",
@@ -618,7 +625,7 @@ function buildSentimentMetrics(args: {
         normal: "VIX：正常",
       }),
       triggerCondition: SIGNAL_THRESHOLDS.vix.triggerCondition,
-      description: `${args.vix.bars.length > 0 ? args.vix.source : "来源暂无数据"} · ${vixBar?.date ?? "时间暂无数据"} · ${args.vix.bars.length > 0 ? args.vix.dataKind : "暂不可用"}`,
+      description: vixDescription,
       tone: stateTone(signals.vix.state),
     },
     {
@@ -985,6 +992,7 @@ function buildStrategyData(args: {
   valuation: ValuationData;
   fearGreed: FearGreedData;
   vix: MarketSeries;
+  vixQuote: VixQuoteData | null;
   qqq: MarketSeries;
   qqqDistance200: number | null;
   termStructure: TermStructureData;
@@ -996,6 +1004,7 @@ function buildStrategyData(args: {
   decision: ReturnType<typeof calculateStrategy>;
 }): StrategyData {
   const vixLatest = latestBar(args.vix);
+  const vixValue = args.vixQuote?.value ?? vixLatest?.close ?? null;
   const qqqLatest = latestBar(args.qqq);
   const valuationText =
     args.valuation.currentPe === null
@@ -1007,7 +1016,9 @@ function buildStrategyData(args: {
     args.fearGreed.score === null
       ? "CNN恐惧贪婪：暂无数据"
       : `CNN恐惧贪婪 ${formatNumber(args.fearGreed.score, 0)}（${args.fearGreed.rating}）`,
-    vixLatest ? `VIX ${formatNumber(vixLatest.close, 2)}` : "VIX：暂无数据",
+    vixValue === null
+      ? "VIX：暂无数据"
+      : `VIX ${formatNumber(vixValue, 2)}${args.vixQuote ? `（${args.vixQuote.sessionLabel}）` : ""}`,
   ];
   const trendText =
     args.qqqDistance200 === null
@@ -1053,6 +1064,7 @@ function collectNotices(args: {
   tailRisk: TailRiskData;
   creditSpread: CreditSpreadData;
   breadth: BreadthData;
+  vixQuoteError: string | null;
 }) {
   const notices = Object.values(args.seriesByKey)
     .filter((series) => series.bars.length === 0 && series.error)
@@ -1063,6 +1075,7 @@ function collectNotices(args: {
   if (args.tailRisk.error) notices.push(`Cboe SKEW/VVIX: ${args.tailRisk.error}`);
   if (args.creditSpread.error) notices.push(`FRED 高收益债 OAS: ${args.creditSpread.error}`);
   if (args.breadth.error) notices.push(`Twelve Data RSP: ${args.breadth.error}`);
+  if (args.vixQuoteError) notices.push(`VIX 盘中报价: ${args.vixQuoteError}（已回退到日线收盘）`);
 
   const fallbackCounts = new Map<string, number>();
   Object.values(args.seriesByKey).forEach((series) => {
@@ -1090,6 +1103,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     tailRiskInputs,
     creditSpreadInputs,
     breadthInputs,
+    vixQuoteResult,
   ] = await Promise.all([
     fetchAllMarketSeries(forceRefresh),
     fetchCnnFearGreed(forceRefresh),
@@ -1098,9 +1112,11 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     fetchCboeTailRiskInputs(forceRefresh),
     fetchCreditSpreadInputs(forceRefresh),
     fetchBreadthInputs(),
+    fetchVixQuote(forceRefresh),
   ]);
 
   const vix = await resolveVixSeries(initialSeries.vix, forceRefresh);
+  const vixQuote = vixQuoteResult.quote;
   const termStructure = buildTermStructure(vix, termStructureInputs);
   const tailRisk = buildTailRisk(tailRiskInputs);
   const creditSpread = buildCreditSpread(creditSpreadInputs);
@@ -1119,6 +1135,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
 
   const { metrics: sentimentMetrics, signals } = buildSentimentMetrics({
     vix,
+    vixQuote,
     fearGreed,
     qqq,
     spy,
@@ -1135,7 +1152,16 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     stale: valuation.stale,
     ageDays: valuation.ageDays,
   });
-  const notices = collectNotices({ seriesByKey, fearGreed, valuation, termStructure, tailRisk, creditSpread, breadth });
+  const notices = collectNotices({
+    seriesByKey,
+    fearGreed,
+    valuation,
+    termStructure,
+    tailRisk,
+    creditSpread,
+    breadth,
+    vixQuoteError: vixQuoteResult.error,
+  });
   const marketAvailable = MARKET_INSTRUMENTS.some(
     (instrument) => seriesByKey[instrument.key].bars.length > 0,
   );
@@ -1252,6 +1278,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
       valuation,
       fearGreed,
       vix,
+      vixQuote,
       qqq,
       qqqDistance200,
       termStructure,
