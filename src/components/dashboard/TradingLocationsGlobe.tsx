@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PointerEvent } from "react";
 import { unitedStatesLandPoints, worldLandPoints } from "@/data/globeLandPoints";
 import type { TradingLocationData } from "@/data/mockData";
 
@@ -34,8 +33,6 @@ interface ProjectedLocation extends ProjectedPoint {
   leftPercent: number;
   topPercent: number;
   onScreen: boolean;
-  tooltipX: "left" | "right" | "center";
-  tooltipY: "above" | "below";
 }
 
 const INITIAL_VIEW: GlobeView = { longitude: -98, latitude: 38 };
@@ -118,22 +115,9 @@ function drawRoute(
 }
 
 export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const [pinnedId, setPinnedId] = useState<string | null>(null);
   const [projectedLocations, setProjectedLocations] = useState<ProjectedLocation[]>([]);
-  const globeRef = useRef<HTMLElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const viewRef = useRef<GlobeView>(INITIAL_VIEW);
-  const inertiaFrameRef = useRef<number | null>(null);
-  const dragRef = useRef<{
-    pointerId: number;
-    lastX: number;
-    lastY: number;
-    lastTime: number;
-    longitudeVelocity: number;
-    latitudeVelocity: number;
-  } | null>(null);
-  const activeId = hoveredId ?? pinnedId;
 
   const renderGlobe = useCallback(
     (view: GlobeView) => {
@@ -254,12 +238,6 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
           const point = projectPoint(location.longitude, location.latitude, view, geometry);
           const viewportX = bounds.left + point.x;
           const viewportY = bounds.top + point.y;
-          const tooltipWidth = Math.min(window.innerWidth <= 767 ? 188 : 216, window.innerWidth - 32);
-          const tooltipHeight = 148;
-          const tooltipGap = 28;
-          const hasRoomOnRight =
-            viewportX + tooltipGap + tooltipWidth <= window.innerWidth - 16;
-          const hasRoomOnLeft = viewportX - tooltipGap - tooltipWidth >= 16;
           return {
             id: location.id,
             ...point,
@@ -270,11 +248,6 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
               viewportX <= window.innerWidth - 8 &&
               viewportY >= 8 &&
               viewportY <= window.innerHeight - 8,
-            tooltipX: hasRoomOnRight ? "right" : hasRoomOnLeft ? "left" : "center",
-            tooltipY:
-              viewportY + tooltipGap + tooltipHeight <= window.innerHeight - 16
-                ? "below"
-                : "above",
           };
         }),
       );
@@ -282,68 +255,6 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
     [locations],
   );
 
-  const applyView = useCallback(
-    (longitude: number, latitude: number) => {
-      const nextView = {
-        longitude: normalizeLongitude(longitude),
-        latitude: Math.max(-70, Math.min(70, latitude)),
-      };
-      viewRef.current = nextView;
-      globeRef.current?.setAttribute("data-view-longitude", nextView.longitude.toFixed(2));
-      globeRef.current?.setAttribute("data-view-latitude", nextView.latitude.toFixed(2));
-      renderGlobe(nextView);
-    },
-    [renderGlobe],
-  );
-
-  const stopInertia = useCallback(() => {
-    if (inertiaFrameRef.current !== null) {
-      cancelAnimationFrame(inertiaFrameRef.current);
-      inertiaFrameRef.current = null;
-    }
-    globeRef.current?.removeAttribute("data-inertia");
-  }, []);
-
-  const startInertia = useCallback(
-    (initialLongitudeVelocity: number, initialLatitudeVelocity: number) => {
-      stopInertia();
-      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-
-      let longitudeVelocity = Math.max(-0.25, Math.min(0.25, initialLongitudeVelocity));
-      let latitudeVelocity = Math.max(-0.18, Math.min(0.18, initialLatitudeVelocity));
-      if (Math.hypot(longitudeVelocity, latitudeVelocity) < 0.012) return;
-
-      let previousTime = performance.now();
-      globeRef.current?.setAttribute("data-inertia", "true");
-
-      const animate = (currentTime: number) => {
-        const elapsed = Math.min(32, currentTime - previousTime);
-        previousTime = currentTime;
-        const nextLatitude = viewRef.current.latitude + latitudeVelocity * elapsed;
-
-        applyView(
-          viewRef.current.longitude + longitudeVelocity * elapsed,
-          nextLatitude,
-        );
-
-        if (nextLatitude <= -70 || nextLatitude >= 70) latitudeVelocity = 0;
-        const damping = Math.pow(0.92, elapsed / 16.667);
-        longitudeVelocity *= damping;
-        latitudeVelocity *= damping;
-
-        if (Math.hypot(longitudeVelocity, latitudeVelocity) < 0.003) {
-          inertiaFrameRef.current = null;
-          globeRef.current?.removeAttribute("data-inertia");
-          return;
-        }
-
-        inertiaFrameRef.current = requestAnimationFrame(animate);
-      };
-
-      inertiaFrameRef.current = requestAnimationFrame(animate);
-    },
-    [applyView, stopInertia],
-  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -396,80 +307,18 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
       canvas.removeEventListener("contextrestored", scheduleRedraw);
       window.clearInterval(redrawWatchdog);
       if (redrawTimer !== null) window.clearTimeout(redrawTimer);
-      stopInertia();
     };
-  }, [renderGlobe, stopInertia]);
+  }, [renderGlobe]);
 
-  function handlePointerDown(event: PointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) return;
-
-    stopInertia();
-    dragRef.current = {
-      pointerId: event.pointerId,
-      lastX: event.clientX,
-      lastY: event.clientY,
-      lastTime: event.timeStamp,
-      longitudeVelocity: 0,
-      latitudeVelocity: 0,
-    };
-    globeRef.current?.setAttribute("data-dragging", "true");
-    event.currentTarget.setPointerCapture(event.pointerId);
-    event.preventDefault();
-  }
-
-  function handlePointerMove(event: PointerEvent<HTMLDivElement>) {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-
-    const elapsed = Math.max(8, event.timeStamp - drag.lastTime);
-    const longitudeDelta = -(event.clientX - drag.lastX) * 0.32;
-    const latitudeDelta = (event.clientY - drag.lastY) * 0.25;
-    const longitudeVelocity = longitudeDelta / elapsed;
-    const latitudeVelocity = latitudeDelta / elapsed;
-
-    drag.longitudeVelocity = drag.longitudeVelocity * 0.62 + longitudeVelocity * 0.38;
-    drag.latitudeVelocity = drag.latitudeVelocity * 0.62 + latitudeVelocity * 0.38;
-    drag.lastX = event.clientX;
-    drag.lastY = event.clientY;
-    drag.lastTime = event.timeStamp;
-
-    applyView(
-      viewRef.current.longitude + longitudeDelta,
-      viewRef.current.latitude + latitudeDelta,
-    );
-  }
-
-  function finishDrag(event: PointerEvent<HTMLDivElement>) {
-    if (dragRef.current?.pointerId !== event.pointerId) return;
-
-    const drag = dragRef.current;
-    dragRef.current = null;
-    globeRef.current?.removeAttribute("data-dragging");
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-
-    if (event.type === "pointerup") {
-      startInertia(drag.longitudeVelocity, drag.latitudeVelocity);
-    }
-  }
-
-  function resetRotation() {
-    stopInertia();
-    applyView(INITIAL_VIEW.longitude, INITIAL_VIEW.latitude);
-  }
 
   return (
     <aside
-      ref={globeRef}
       className="ambient-trading-globe"
-      aria-label="可拖动旋转的三维交易地点地球"
+      aria-label="三维交易地点地球（装饰背景）"
       data-renderer="spherical-canvas"
       data-map-resolution="natural-earth-50m"
       data-world-land-points={worldLandPoints.length}
       data-us-land-points={unitedStatesLandPoints.length}
-      data-view-longitude={INITIAL_VIEW.longitude.toFixed(2)}
-      data-view-latitude={INITIAL_VIEW.latitude.toFixed(2)}
     >
       <canvas ref={canvasRef} className="ambient-trading-globe__visual" aria-hidden="true" />
       {/* 移动端用静态位图兜底：浏览器长时间挂起后可能回收 canvas 后备存储，导致整块画布变灰。 */}
@@ -484,7 +333,6 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
             <span
               key={location.id}
               className="ambient-trading-location__marker"
-              data-active={location.id === activeId}
               style={{
                 left: projected ? `${projected.leftPercent}%` : "50%",
                 top: projected ? `${projected.topPercent}%` : "50%",
@@ -495,82 +343,6 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
         })}
       </div>
 
-      <div className="ambient-trading-globe__hotspots">
-        {locations.map((location) => {
-          const active = location.id === activeId;
-          const pinned = location.id === pinnedId;
-          const projected = projectedLocations.find((point) => point.id === location.id);
-          const visible = Boolean(projected?.visible && projected.onScreen && projected.depth > 0.08);
-
-          return (
-            <button
-              key={location.id}
-              type="button"
-              aria-label={`${location.city}，${location.institution}。${location.detail}`}
-              aria-pressed={pinned}
-              data-active={active}
-              onMouseEnter={() => setHoveredId(location.id)}
-              onMouseLeave={() => setHoveredId(null)}
-              onFocus={() => setHoveredId(location.id)}
-              onBlur={() => setHoveredId(null)}
-              onClick={() =>
-                setPinnedId((current) => (current === location.id ? null : location.id))
-              }
-              className="ambient-trading-location__hotspot"
-              style={{
-                left: projected ? `${projected.leftPercent}%` : "50%",
-                top: projected ? `${projected.topPercent}%` : "50%",
-                opacity: visible ? Math.min(1, Math.max(0.25, (projected?.depth ?? 0) * 1.5)) : 0,
-                pointerEvents: visible ? "auto" : "none",
-              }}
-            />
-          );
-        })}
-      </div>
-
-      <div className="ambient-trading-globe__tooltip-layer" aria-hidden="true">
-        {locations.map((location) => {
-          const projected = projectedLocations.find((point) => point.id === location.id);
-          const visible = Boolean(projected?.visible && projected.onScreen && projected.depth > 0.08);
-          const active = location.id === activeId && visible;
-
-          return (
-            <div
-              key={location.id}
-              className="ambient-trading-location__tooltip-anchor"
-              data-active={active}
-              data-tooltip-x={projected?.tooltipX ?? "center"}
-              data-tooltip-y={projected?.tooltipY ?? "below"}
-              style={{
-                left: projected ? `${projected.leftPercent}%` : "50%",
-                top: projected ? `${projected.topPercent}%` : "50%",
-              }}
-            >
-              <span className="ambient-trading-location__tooltip">
-                <span className="ambient-trading-location__city">
-                  {location.city}
-                  <span>{location.region}</span>
-                </span>
-                <span className="ambient-trading-location__institution">
-                  {location.institution}
-                </span>
-                <span className="ambient-trading-location__detail">{location.detail}</span>
-              </span>
-            </div>
-          );
-        })}
-      </div>
-
-      <div
-        className="ambient-trading-globe__drag-surface"
-        aria-hidden="true"
-        title="拖动旋转三维地球，双击回到美国视角"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={finishDrag}
-        onPointerCancel={finishDrag}
-        onDoubleClick={resetRotation}
-      />
     </aside>
   );
 }

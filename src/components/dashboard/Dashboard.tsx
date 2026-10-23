@@ -20,7 +20,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { TradingLocationsGlobe } from "./TradingLocationsGlobe";
 
 /** 上一次成功读取的 payload：刷新（或后端冷启动）期间先把旧内容顶上，避免整屏空白。 */
-const DASHBOARD_CACHE_KEY = "us-stock-dashboard-payload-v1";
+const DASHBOARD_CACHE_KEY = "us-stock-dashboard-payload-v2";
 const DASHBOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 interface CachedDashboard {

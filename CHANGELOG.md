@@ -2,6 +2,21 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，版本号维护在 `package.json`。
 
+## [1.2.0] - 2026-10-23
+
+### 新增
+
+- 「指数指标」页新增「跨资产背景（不参与倍率）」：原油（USO）、10 年期美债收益率（^TNX）、黄金（GLD）、比特币（BTC-USD）的最新值、近 20 个交易日变化与 52 周区间，并给出一句观察提示。
+- 跨资产数据走 Yahoo Finance 日线，单独缓存 4 小时；单个资产失败时沿用上次成功样本，不阻塞主行情，也不占用 Twelve Data 的免费额度。
+
+### 修复
+
+- 背景地球改为纯装饰层：移除拖拽面、热区、悬浮提示与全部指针事件，修复透明固定层偶尔挡住顶部标签栏、导致「指数指标」等标签点不到的问题。
+
+### 说明
+
+- 跨资产读数只作背景参考，不进入定投倍率，也不是买卖信号；ETF 代理有跟踪误差，美债收益率与债券价格反向。
+
 ## [1.1.2] - 2026-10-23
 
 ### 新增
@@ -64,6 +79,7 @@
 - 行情为日线收盘或延迟数据，不是实时报价。
 - 所有指标只描述历史数据，不构成投资建议。
 
+[1.2.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.2.0
 [1.1.2]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.2
 [1.1.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.1
 [1.1.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.0

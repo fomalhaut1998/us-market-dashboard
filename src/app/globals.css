@@ -131,9 +131,7 @@ body {
 
 .ambient-trading-globe__visual,
 .ambient-trading-globe__still,
-.ambient-trading-globe__markers,
-.ambient-trading-globe__hotspots,
-.ambient-trading-globe__tooltip-layer {
+.ambient-trading-globe__markers {
   position: fixed;
   top: -8rem;
   left: -12rem;
@@ -148,7 +146,6 @@ body {
   height: auto;
   opacity: 0.72;
   filter: drop-shadow(0 12px 30px rgba(65, 107, 188, 0.12));
-  transition: opacity 180ms ease, filter 180ms ease;
 }
 
 .ambient-trading-globe__still {
@@ -165,40 +162,8 @@ body {
   filter: drop-shadow(0 14px 32px rgba(61, 112, 218, 0.18));
 }
 
-.ambient-trading-globe__hotspots {
-  z-index: 16;
-}
-
 .ambient-trading-globe__markers {
   z-index: 2;
-}
-
-.ambient-trading-globe__tooltip-layer {
-  z-index: 20;
-}
-
-.ambient-trading-location__tooltip-anchor {
-  position: absolute;
-  width: 0;
-  height: 0;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-}
-
-.ambient-trading-globe__drag-surface {
-  position: fixed;
-  top: -8rem;
-  left: -12rem;
-  z-index: 15;
-  width: clamp(34rem, 48vw, 46rem);
-  height: 19rem;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-}
-
-.ambient-trading-globe[data-dragging="true"] .ambient-trading-globe__drag-surface {
-  cursor: grabbing;
 }
 
 [data-theme="dark"] .ambient-trading-globe__visual {
@@ -206,38 +171,14 @@ body {
   filter: drop-shadow(0 14px 32px rgba(61, 112, 218, 0.18));
 }
 
-.ambient-trading-globe:has(.ambient-trading-location__hotspot[data-active="true"])
-  .ambient-trading-globe__visual {
-  opacity: 0.9;
-}
-
-[data-theme="dark"]
-  .ambient-trading-globe:has(.ambient-trading-location__hotspot[data-active="true"])
-  .ambient-trading-globe__visual {
-  opacity: 1;
-}
-
-.ambient-trading-location__hotspot,
 .ambient-trading-location__marker {
   position: absolute;
   z-index: 1;
   width: 1.125rem;
   height: 1.125rem;
   border-radius: 999px;
-  transform: translate(-50%, -50%);
-}
-
-.ambient-trading-location__hotspot {
-  padding: 0;
-  border: 1px solid transparent;
-  background: transparent;
-  pointer-events: auto;
-  outline: none;
-}
-
-.ambient-trading-location__marker {
   pointer-events: none;
-  transition: background-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
+  transform: translate(-50%, -50%);
 }
 
 .ambient-trading-location__marker::before,
@@ -267,96 +208,6 @@ body {
 [data-theme="dark"] .ambient-trading-location__marker::before {
   background: #78a2ff;
   box-shadow: 0 0 0 2px rgba(7, 15, 29, 0.78), 0 0 14px rgba(78, 131, 245, 0.5);
-}
-
-.ambient-trading-location__marker[data-active="true"] {
-  background: rgba(44, 103, 232, 0.13);
-  box-shadow: 0 0 0 4px rgba(44, 103, 232, 0.16), 0 0 22px rgba(44, 103, 232, 0.2);
-  transform: translate(-50%, -50%) scale(1.08);
-}
-
-[data-theme="dark"] .ambient-trading-location__marker[data-active="true"] {
-  background: rgba(111, 158, 255, 0.16);
-  box-shadow: 0 0 0 4px rgba(111, 158, 255, 0.18), 0 0 24px rgba(67, 119, 232, 0.28);
-}
-
-.ambient-trading-location__tooltip {
-  --tooltip-anchor-x: 0;
-  --tooltip-y-offset: -0.2rem;
-  position: absolute;
-  top: calc(100% + 0.6rem);
-  right: calc(100% + 0.65rem);
-  display: grid;
-  width: min(13.5rem, calc(100vw - 2rem));
-  gap: 0.35rem;
-  padding: 0.8rem 0.9rem;
-  border: 1px solid var(--color-line);
-  border-radius: 0.9rem;
-  background: color-mix(in srgb, var(--color-surface) 94%, transparent);
-  color: var(--color-ink);
-  text-align: left;
-  opacity: 0;
-  pointer-events: none;
-  box-shadow: 0 12px 32px rgba(34, 49, 78, 0.14);
-  transform: translate(var(--tooltip-anchor-x), var(--tooltip-y-offset)) scale(0.98);
-  transition: opacity 150ms ease, transform 150ms ease;
-  backdrop-filter: blur(12px);
-}
-
-.ambient-trading-location__tooltip-anchor[data-tooltip-x="right"]
-  .ambient-trading-location__tooltip {
-  right: auto;
-  left: calc(100% + 0.65rem);
-}
-
-.ambient-trading-location__tooltip-anchor[data-tooltip-x="center"]
-  .ambient-trading-location__tooltip {
-  --tooltip-anchor-x: -50%;
-  right: auto;
-  left: 50%;
-}
-
-.ambient-trading-location__tooltip-anchor[data-tooltip-y="above"]
-  .ambient-trading-location__tooltip {
-  --tooltip-y-offset: 0.2rem;
-  top: auto;
-  bottom: calc(100% + 0.6rem);
-}
-
-.ambient-trading-location__city {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  font-size: 0.9rem;
-  font-weight: 900;
-  line-height: 1.25;
-}
-
-.ambient-trading-location__city > span {
-  color: var(--color-tertiary);
-  font-size: 0.66rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.ambient-trading-location__institution {
-  color: var(--color-brand);
-  font-size: 0.7rem;
-  font-weight: 800;
-  line-height: 1.35;
-}
-
-.ambient-trading-location__detail {
-  color: var(--color-muted);
-  font-size: 0.68rem;
-  line-height: 1.55;
-}
-
-.ambient-trading-location__tooltip-anchor[data-active="true"]
-  .ambient-trading-location__tooltip {
-  opacity: 1;
-  transform: translate(var(--tooltip-anchor-x), 0) scale(1);
 }
 
 .market-flow-backdrop {
@@ -423,21 +274,11 @@ body {
 @media (max-width: 767px) {
   .ambient-trading-globe__visual,
   .ambient-trading-globe__still,
-  .ambient-trading-globe__markers,
-  .ambient-trading-globe__hotspots,
-  .ambient-trading-globe__tooltip-layer {
+  .ambient-trading-globe__markers {
     top: -6rem;
     right: -9.5rem;
     left: auto;
     width: 25rem;
-  }
-
-  .ambient-trading-globe__drag-surface {
-    top: -6rem;
-    right: -6.5rem;
-    left: auto;
-    width: 16rem;
-    height: 15rem;
   }
 
   .ambient-trading-globe__visual,
@@ -450,14 +291,9 @@ body {
     opacity: 0.7;
   }
 
-  .ambient-trading-location__hotspot,
   .ambient-trading-location__marker {
     width: 1.25rem;
     height: 1.25rem;
-  }
-
-  .ambient-trading-location__tooltip {
-    width: min(11.75rem, calc(100vw - 2rem));
   }
 
   .market-flow-backdrop__track--left {
@@ -485,17 +321,6 @@ body {
 
   .ambient-trading-globe__still {
     display: block;
-  }
-}
-
-@media (max-width: 767px), (hover: none), (pointer: coarse) {
-  .ambient-trading-globe__drag-surface,
-  .ambient-trading-location__hotspot {
-    pointer-events: none !important;
-  }
-
-  .ambient-trading-globe__tooltip-layer {
-    display: none;
   }
 }
 

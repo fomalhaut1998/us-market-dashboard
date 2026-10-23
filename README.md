@@ -5,9 +5,9 @@
 [![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=nextdotjs&style=flat-square)](https://nextjs.org)
 [![Node](https://img.shields.io/badge/node-%3E%3D20.9-339933?logo=nodedotjs&logoColor=white&style=flat-square)](https://nodejs.org)
 
-一个用 Next.js 16 构建的美股大盘位置与情绪看板：把指数行情、相对强弱、波动率结构、恐惧贪婪、估值分位、市场宽度、信用利差放在同一屏，再按固定规则给出定投倍率提示。
+一个用 Next.js 16 构建的美股大盘位置与情绪看板：把指数行情、相对强弱、跨资产背景、波动率结构、恐惧贪婪、估值分位、市场宽度、信用利差放在同一屏，再按固定规则给出定投倍率提示。
 
-- **在线演示**：<https://us-market-dashboard-gules.vercel.app>
+- **在线演示**：<https://us-market.fomal.cc>（备用：<https://us-market-dashboard-gules.vercel.app>）
 - **源码仓库**：<https://github.com/fomalhaut1998/us-market-dashboard>
 - **发布记录**：<https://github.com/fomalhaut1998/us-market-dashboard/releases>
 - **更新日志**：[CHANGELOG.md](CHANGELOG.md)
@@ -44,6 +44,7 @@
 
 - 六项行情：SPY、QQQ、DIA、SOXX、IWM 与纳斯达克综合指数，含 52 周区间、距 52 周高点、数据来源与数据日期。
 - 相对强弱：各标的近 20 / 60 个交易日相对 SPY 的超额收益，用来判断行情是普涨还是少数权重在拉。
+- 跨资产背景：原油（USO）、10 年期美债收益率（^TNX）、黄金（GLD）、比特币（BTC-USD）的最新值、近 20 个交易日变化与 52 周区间；只作背景读数，不参与倍率。
 - 指数综合判断：估值、趋势位置、短期表现与操作提示。
 
 **情绪与说明**
@@ -73,7 +74,9 @@
 
 ## 在线演示
 
-<https://us-market-dashboard-gules.vercel.app>
+<https://us-market.fomal.cc>
+
+备用地址：<https://us-market-dashboard-gules.vercel.app>
 
 演示站由 Vercel 从 `main` 分支自动部署。演示环境没有持久化磁盘，倍率轨迹可能随实例重建而清空；本地或自建服务部署可以保留 `data/snapshots.jsonl`。
 
@@ -131,6 +134,7 @@ npm run start
 | 数据 | 来源 | 说明 |
 | --- | --- | --- |
 | 指数 / ETF 行情 | Twelve Data → Nasdaq → Financial Modeling Prep | 依次回退；Twelve Data 返回 429 后冷却 5 分钟，再失败则使用最近一次成功的数据。 |
+| 跨资产背景 | Yahoo Finance | 原油 USO、10 年期美债收益率 ^TNX、黄金 GLD、比特币 BTC-USD；日线收盘，单独缓存 4 小时；单资产失败时沿用上次成功样本，不阻塞主行情。 |
 | VIX | Cboe / Yahoo Finance | 日线历史用 Cboe 官方收盘；盘中现价用 Yahoo Finance，失败时回退 Cboe 延迟报价（约 15–20 分钟）。 |
 | SKEW、VVIX | Cboe | 官方日线收盘。 |
 | 恐惧贪婪 | CNN | 公开页面上的当前分数。 |
@@ -138,7 +142,7 @@ npm run start
 | 高收益债 OAS | FRED | `BAMLH0A0HYM2`，T+1 公布的日频数据。 |
 | 市场宽度 | RSP / SPY | RSP 行情单独缓存 2 小时；SPY 走整页 30 分钟缓存。 |
 
-除 VIX 盘中报价外，所有行情都是日线收盘或延迟数据，**不是实时报价**；VIX 盘中报价本身也有约 15–20 分钟延迟。仓库不附带行情数据，运行时从上述公开来源获取；使用前请遵守各数据源的条款。
+除 VIX 盘中报价外，所有行情（含跨资产背景）都是日线收盘或延迟数据，**不是实时报价**；VIX 盘中报价本身也有约 15–20 分钟延迟。仓库不附带行情数据，运行时从上述公开来源获取；使用前请遵守各数据源的条款。
 
 ## 指标与倍率规则
 
@@ -204,7 +208,7 @@ npm run start
 }
 ```
 
-页面依赖的主要字段：`status`、`lastUpdated`、`indexSummaries`、`relativeStrength`、`sentimentMetrics`、`termStructure`、`tailRisk`、`breadth`、`creditSpread`、`vixPeHistory`、`strategyData`、`missingCount`、`notices`。
+页面依赖的主要字段：`status`、`lastUpdated`、`indexSummaries`、`relativeStrength`、`macro`、`sentimentMetrics`、`termStructure`、`tailRisk`、`breadth`、`creditSpread`、`vixPeHistory`、`strategyData`、`missingCount`、`notices`。
 
 ## 部署
 
@@ -274,6 +278,10 @@ data/snapshots.jsonl      运行时生成的倍率快照（gitignored）
 
 免费档约 8 credits/分钟，整页一次刷新会用到 7 个符号。触发 429 后会冷却 5 分钟，并尝试 Nasdaq / FMP 备用源；等待几分钟再刷新即可。
 
+**「跨资产背景」参与倍率吗？**
+
+不参与。它只补充油价、长端利率、黄金和比特币的背景读数；卡片颜色只表示近 20 个交易日数值变化的方向，不是买卖信号。ETF 代理有跟踪误差，收益率与债券价格反向，跨资产关系也会随市场状态变化。
+
 **PE 为什么显示「已滞后 N 天」？**
 
 Multpl 的 PE 是月度数据，不是每日更新。滞后超过 45 天时页面只标注数据日期，不把它纳入倍率计算，这是刻意设计，不是缺数据。
@@ -292,7 +300,7 @@ Multpl 的 PE 是月度数据，不是每日更新。滞后超过 45 天时页�
 
 ## 版本与发布
 
-当前版本 **v1.1.2**（2026-10-23）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
+当前版本 **v1.2.0**（2026-10-23）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
 
 - 发布记录：<https://github.com/fomalhaut1998/us-market-dashboard/releases>
 - 变更历史：[CHANGELOG.md](CHANGELOG.md)

@@ -65,7 +65,7 @@ export const sensitivitySection = {
 export const tradingLocationsSection = {
   title: "美国主要交易地点",
   description:
-    "以点阵地球展示美国交易所与市场基础设施的代表性地点。悬停、点击或使用键盘选择节点查看说明；以下为固定地点信息，不代表实时交易状态。",
+    "以点阵地球展示美国交易所与市场基础设施的代表性地点。地球是纯装饰背景，不响应鼠标或键盘；以下为固定地点信息，不代表实时交易状态。",
 };
 
 export const tradingLocations: TradingLocationData[] = [

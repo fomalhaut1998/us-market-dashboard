@@ -71,6 +71,7 @@ import type {
 import { buildBreadth, fetchBreadthInputs } from "./breadth";
 import { buildCreditSpread, fetchCreditSpreadInputs } from "./credit";
 import { fetchCnnFearGreed } from "./fearGreed";
+import { fetchMacroView } from "./macro";
 import {
   latestPerMarketDate,
   readSnapshots,
@@ -1104,6 +1105,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     creditSpreadInputs,
     breadthInputs,
     vixQuoteResult,
+    macroResult,
   ] = await Promise.all([
     fetchAllMarketSeries(forceRefresh),
     fetchCnnFearGreed(forceRefresh),
@@ -1113,6 +1115,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     fetchCreditSpreadInputs(forceRefresh),
     fetchBreadthInputs(),
     fetchVixQuote(forceRefresh),
+    fetchMacroView(forceRefresh),
   ]);
 
   const vix = await resolveVixSeries(initialSeries.vix, forceRefresh);
@@ -1162,6 +1165,9 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     breadth,
     vixQuoteError: vixQuoteResult.error,
   });
+  if (macroResult.errors.length > 0) {
+    notices.push(...macroResult.errors.map((error) => `跨资产: ${error}`));
+  }
   const marketAvailable = MARKET_INSTRUMENTS.some(
     (instrument) => seriesByKey[instrument.key].bars.length > 0,
   );
@@ -1268,6 +1274,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
       strategyReason: decision.reason,
     }),
     relativeStrength: buildRelativeStrength(seriesByKey),
+    macro: macroResult.view,
     sentimentMetrics,
     termStructure: buildTermStructureView(termStructure),
     tailRisk: buildTailRiskView(tailRisk),
@@ -1296,7 +1303,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
 
 const unstableDashboardData = unstable_cache(
   async () => buildDashboardData({ forceRefresh: false }),
-  ["us-stock-dashboard-real-data-v4"],
+  ["us-stock-dashboard-real-data-v6"],
   { revalidate: MARKET_CACHE_SECONDS },
 );
 

@@ -1,6 +1,7 @@
 import { indexSection } from "@/data/mockData";
 import type { DashboardPayload } from "@/types/dashboard";
 import { IndexCard } from "./IndexCard";
+import { MacroPanel } from "./MacroPanel";
 import { MarketConclusion } from "./MarketConclusion";
 import { RelativeStrengthPanel } from "./RelativeStrengthPanel";
 import { SectionCard } from "./SectionCard";
@@ -15,6 +16,8 @@ export function IndexView({ data }: { data: DashboardPayload }) {
           ))}
         </div>
       </SectionCard>
+
+      <MacroPanel data={data.macro} />
 
       <RelativeStrengthPanel data={data.relativeStrength} />
 

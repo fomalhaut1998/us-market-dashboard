@@ -66,6 +66,39 @@ export interface RelativeStrengthView {
   note: string;
 }
 
+export interface MacroRange52Week {
+  lowLabel: string;
+  highLabel: string;
+  /** 高位 / 中位 / 低位。 */
+  positionLabel: string;
+  /** 现值在区间里的位置，用于画进度条。 */
+  positionPct: number;
+}
+
+export interface MacroAssetView {
+  key: string;
+  name: string;
+  symbolLabel: string;
+  value: string;
+  changeLabel: string;
+  changeTone: ChangeTone;
+  /** 近一年高低点区间；样本不足时为 null。 */
+  range52w: MacroRange52Week | null;
+  hint: string;
+  asOf: string | null;
+  source: string;
+  dataKind: string;
+  error: string | null;
+}
+
+export interface MacroView {
+  title: string;
+  description: string;
+  asOfLabel: string;
+  assets: MacroAssetView[];
+  note: string;
+}
+
 export interface SensitivityRow {
   key: string;
   name: string;
@@ -265,6 +298,7 @@ export interface DashboardPayload {
     rows: ConclusionRow[];
   };
   relativeStrength: RelativeStrengthView;
+  macro: MacroView;
   sentimentMetrics: MetricCardData[];
   termStructure: TermStructureView;
   tailRisk: TailRiskView;
