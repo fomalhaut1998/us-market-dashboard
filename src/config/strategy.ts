@@ -23,7 +23,8 @@ export const VALUATION_MULTIPLIER_BANDS: ValuationMultiplierBand[] = [
 ];
 
 /**
- * 信号置信度。RSI(6) 是纯短线噪声指标，单独触发不足以把倍率顶到 2×，
+ * 信号置信度。RSI(6) 是纯短线噪声指标；QQQ 200 日均线是慢变量，
+ * 且与 52 周回撤高度相关。两者单独触发都不足以把倍率顶到 2×，
  * 必须再有一项触发来确认。
  */
 export const SIGNAL_CONFIDENCE: Record<SignalMetricKey, SignalConfidence> = {
@@ -32,7 +33,7 @@ export const SIGNAL_CONFIDENCE: Record<SignalMetricKey, SignalConfidence> = {
   rsi6: "low",
   pePercentile: "high",
   drawdown52w: "high",
-  momentum25d: "high",
+  qqq200d: "low",
 };
 
 /** 低置信信号需要凑满几项触发，才算互相确认、允许升到 2×。 */

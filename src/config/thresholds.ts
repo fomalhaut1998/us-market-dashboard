@@ -17,8 +17,9 @@ export const SIGNAL_THRESHOLDS: Record<SignalMetricKey, ThresholdRule> = {
     triggerCondition: "≥ 30",
     direction: "up",
     triggerAt: 30,
-    nearAt: 25,
-    evaluate: (value) => (value >= 30 ? "triggered" : value >= 25 ? "near" : "normal"),
+    /** 22 只作观察线：更早提示波动率紧张，但不把 22–25 的普通紧张当成极端买入。 */
+    nearAt: 22,
+    evaluate: (value) => (value >= 30 ? "triggered" : value >= 22 ? "near" : "normal"),
   },
   fearGreed: {
     triggerCondition: "< 25",
@@ -48,12 +49,12 @@ export const SIGNAL_THRESHOLDS: Record<SignalMetricKey, ThresholdRule> = {
     nearAt: -15,
     evaluate: (value) => (value <= -20 ? "triggered" : value <= -15 ? "near" : "normal"),
   },
-  momentum25d: {
-    triggerCondition: "≤ -12%",
+  qqq200d: {
+    triggerCondition: "≤ -8%",
     direction: "down",
-    triggerAt: -12,
-    nearAt: -8,
-    evaluate: (value) => (value <= -12 ? "triggered" : value <= -8 ? "near" : "normal"),
+    triggerAt: -8,
+    nearAt: -3,
+    evaluate: (value) => (value <= -8 ? "triggered" : value <= -3 ? "near" : "normal"),
   },
 };
 

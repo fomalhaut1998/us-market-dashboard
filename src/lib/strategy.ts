@@ -29,7 +29,7 @@ const SIGNAL_LABELS: Record<SignalMetricKey, string> = {
   rsi6: "RSI(6)",
   pePercentile: "PE近5年分位",
   drawdown52w: "52周回撤",
-  momentum25d: "25日涨跌幅",
+  qqq200d: "QQQ 200日均线",
 };
 
 function staleNote(valuation?: StrategyValuationInput) {

@@ -593,8 +593,7 @@ function buildSentimentMetrics(args: {
   spyRsi: number | null;
   qqqDrawdown: number | null;
   spyDrawdown: number | null;
-  qqqMomentum: number | null;
-  spyMomentum: number | null;
+  qqqDistance200: number | null;
 }) {
   const vixBar = latestBar(args.vix);
   const vixValue = args.vixQuote?.value ?? vixBar?.close ?? null;
@@ -611,7 +610,7 @@ function buildSentimentMetrics(args: {
         ? { ...evaluateSignal("pePercentile", args.valuation.percentile), state: "stale" as const }
         : evaluateSignal("pePercentile", args.valuation.percentile),
     drawdown52w: evaluateSignal("drawdown52w", args.qqqDrawdown === null ? null : args.qqqDrawdown * 100),
-    momentum25d: evaluateSignal("momentum25d", args.qqqMomentum === null ? null : args.qqqMomentum * 100),
+    qqq200d: evaluateSignal("qqq200d", args.qqqDistance200 === null ? null : args.qqqDistance200 * 100),
   } satisfies Record<string, SignalEvaluation>;
 
   const metrics: MetricCardData[] = [
@@ -696,23 +695,21 @@ function buildSentimentMetrics(args: {
       tone: stateTone(signals.drawdown52w.state),
     },
     {
-      id: "momentum-25d",
-      name: "25日涨跌幅",
-      value: formatRatioPercent(args.qqqMomentum, 2, true),
-      badgeLabel: badgeLabel(signals.momentum25d.state),
-      stateLabel: stateDescription(signals.momentum25d.state, {
-        triggered: "涨跌：极端买入机会",
-        near: "涨跌：进入观察区",
-        normal: "涨跌：正常",
+      id: "qqq-200d",
+      name: "QQQ 200日均线",
+      value: formatRatioPercent(args.qqqDistance200, 2, true),
+      badgeLabel: badgeLabel(signals.qqq200d.state),
+      stateLabel: stateDescription(signals.qqq200d.state, {
+        triggered: "趋势：深度跌破",
+        near: "趋势：跌破观察区",
+        normal: "趋势：常态区间",
       }),
-      triggerCondition: SIGNAL_THRESHOLDS.momentum25d.triggerCondition,
-      description: marketCalculationDescription(
-        formatRatioPercent(args.qqqMomentum, 2, true),
-        formatRatioPercent(args.spyMomentum, 2, true),
-        qqqDate,
-        "25个交易日前收盘本地计算",
-      ),
-      tone: stateTone(signals.momentum25d.state),
+      triggerCondition: SIGNAL_THRESHOLDS.qqq200d.triggerCondition,
+      description:
+        args.qqqDistance200 === null
+          ? "QQQ 日线不足 200 根 · 200日收盘均线本地计算"
+          : `QQQ 收盘 vs 200日均线 · ${qqqDate ?? "时间暂无数据"} · Twelve Data · 200日收盘均线本地计算`,
+      tone: stateTone(signals.qqq200d.state),
     },
   ];
 
@@ -848,7 +845,7 @@ const SIGNAL_NAMES: Record<SignalMetricKey, string> = {
   rsi6: "RSI(6)",
   pePercentile: "PE近5年分位",
   drawdown52w: "52周回撤",
-  momentum25d: "25日涨跌幅",
+  qqq200d: "QQQ 200日均线",
 };
 
 function sensitivityValueLabel(key: SignalMetricKey, value: number | null) {
@@ -862,6 +859,8 @@ function sensitivityValueLabel(key: SignalMetricKey, value: number | null) {
       return formatNumber(value, 1);
     case "pePercentile":
       return `${value.toFixed(1)}%`;
+    case "qqq200d":
+      return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
     default:
       return `${value.toFixed(2)}%`;
   }
@@ -869,7 +868,7 @@ function sensitivityValueLabel(key: SignalMetricKey, value: number | null) {
 
 function sensitivityGapUnit(key: SignalMetricKey) {
   if (key === "fearGreed") return " 分";
-  if (key === "pePercentile" || key === "drawdown52w" || key === "momentum25d") return " 个百分点";
+  if (key === "pePercentile" || key === "drawdown52w" || key === "qqq200d") return " 个百分点";
   return " 点";
 }
 
@@ -1147,8 +1146,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     spyRsi,
     qqqDrawdown,
     spyDrawdown,
-    qqqMomentum,
-    spyMomentum,
+    qqqDistance200,
   });
   const decision = calculateStrategy(signals, {
     percentile: valuation.percentile,
@@ -1303,7 +1301,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
 
 const unstableDashboardData = unstable_cache(
   async () => buildDashboardData({ forceRefresh: false }),
-  ["us-stock-dashboard-real-data-v6"],
+  ["us-stock-dashboard-real-data-v7"],
   { revalidate: MARKET_CACHE_SECONDS },
 );
 

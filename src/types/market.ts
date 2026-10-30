@@ -77,7 +77,7 @@ export type SignalMetricKey =
   | "rsi6"
   | "pePercentile"
   | "drawdown52w"
-  | "momentum25d";
+  | "qqq200d";
 
 export type SignalState = "triggered" | "near" | "normal" | "missing" | "stale";
 
