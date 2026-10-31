@@ -26,7 +26,7 @@ export type {
 
 export const dashboardMeta = {
   title: "美股估值与情绪监控看板",
-  updateSchedule: "日线数据服务端缓存 30 分钟；VIX 盘中报价随刷新更新（延迟约 15 分钟）",
+  updateSchedule: "日线缓存 30 分钟，首屏超 10 分钟自动刷新；VIX 盘中延迟约 15 分钟",
   scheduleBadge: "真实数据 · 30 分钟缓存 · VIX 盘中延迟",
 };
 

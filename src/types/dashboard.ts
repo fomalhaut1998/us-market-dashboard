@@ -292,6 +292,8 @@ export interface TradingLocationData {
 export interface DashboardPayload {
   status: "success" | "partial" | "unavailable";
   lastUpdated: string;
+  /** 服务端构建该 payload 的时间戳（毫秒），用于判断首屏缓存是否过期。 */
+  generatedAt?: number;
   indexSummaries: IndexSummary[];
   indexConclusion: {
     title: string;

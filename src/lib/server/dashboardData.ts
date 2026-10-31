@@ -1259,10 +1259,12 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     await recordDashboardSnapshot(snapshotInput);
   }
   const historyRecords = await readSnapshots();
+  const now = new Date();
 
   return {
     status,
-    lastUpdated: formatDateTime(new Date()),
+    lastUpdated: formatDateTime(now),
+    generatedAt: now.getTime(),
     indexSummaries: buildIndexSummaries(seriesByKey),
     indexConclusion: buildIndexConclusion({
       valuation,

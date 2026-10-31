@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   dashboardMeta,
   dashboardTabs,
@@ -22,6 +22,8 @@ import { TradingLocationsGlobe } from "./TradingLocationsGlobe";
 /** 上一次成功读取的 payload：刷新（或后端冷启动）期间先把旧内容顶上，避免整屏空白。 */
 const DASHBOARD_CACHE_KEY = "us-stock-dashboard-payload-v3";
 const DASHBOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+/** 首屏服务端数据超过这个时间就自动在后台刷新一次，避免用户手动点刷新。 */
+const AUTO_REFRESH_AFTER_MS = 10 * 60 * 1000;
 
 interface CachedDashboard {
   savedAt: number;
@@ -41,6 +43,15 @@ function readCachedDashboard(): CachedDashboard | null {
   } catch {
     return null;
   }
+}
+
+function payloadTimestamp(payload: DashboardPayload) {
+  if (typeof payload.generatedAt === "number" && Number.isFinite(payload.generatedAt)) {
+    return payload.generatedAt;
+  }
+  // 兼容升级前缓存的 payload：lastUpdated 固定按 Asia/Shanghai 格式化。
+  const parsed = Date.parse(`${payload.lastUpdated.replace(" ", "T")}+08:00`);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function writeCachedDashboard(payload: DashboardPayload) {
@@ -86,7 +97,7 @@ function DashboardUnavailable({ message }: { message: string }) {
 }
 
 interface DashboardProps {
-  /** 服务端首屏已经取到的数据；有值时浏览器端不再重复请求。 */
+  /** 服务端首屏已经取到的数据；有值时先展示，过期后再在后台补一次刷新。 */
   initialData?: DashboardPayload | null;
   initialError?: string | null;
 }
@@ -98,6 +109,7 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const autoRefreshStarted = useRef(false);
 
   const refreshData = useCallback(async () => {
     setRefreshing(true);
@@ -121,16 +133,35 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
   }, []);
 
   useEffect(() => {
-    // 服务端已经把数据塞进首屏 HTML 了，这里只负责把它写进本地缓存，供下次冷启动兜底。
+    const maybeAutoRefresh = (payload: DashboardPayload) => {
+      if (autoRefreshStarted.current) return;
+      const timestamp = payloadTimestamp(payload);
+      if (!timestamp || Date.now() - timestamp <= AUTO_REFRESH_AFTER_MS) return;
+      autoRefreshStarted.current = true;
+      setCachedAt(timestamp);
+      void refreshData();
+    };
+
+    // 服务端首屏数据先直接展示；如果它已经过期，再在后台补一次刷新，而不是等用户手动点。
     if (initialData) {
-      writeCachedDashboard(initialData);
+      const cached = readCachedDashboard();
+      const initialTimestamp = payloadTimestamp(initialData);
+      if (cached && payloadTimestamp(cached.payload) > initialTimestamp) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setData(cached.payload);
+        setCachedAt(cached.savedAt);
+        setLoading(false);
+        maybeAutoRefresh(cached.payload);
+      } else {
+        writeCachedDashboard(initialData);
+        maybeAutoRefresh(initialData);
+      }
       return;
     }
 
     const cached = readCachedDashboard();
     if (cached) {
       // 缓存只能在挂载后读取（服务端没有 localStorage），这是有意的一次性 hydration 补位。
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setData(cached.payload);
       setCachedAt(cached.savedAt);
       setLoading(false);
@@ -158,7 +189,7 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
       });
 
     return () => controller.abort();
-  }, [initialData]);
+  }, [initialData, refreshData]);
 
   let panel: React.ReactNode;
   if (loading && !data) {
@@ -238,7 +269,9 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
             className="mt-4 rounded-[18px] border border-brand/25 bg-brand/5 px-4 py-2.5 text-[0.76rem] leading-5 font-semibold text-brand sm:mt-5 sm:text-xs"
             role="status"
           >
-            先显示上次读取的数据（{formatCacheTime(cachedAt)}），正在后台更新…
+            {refreshing
+              ? `先显示上次读取的数据（${formatCacheTime(cachedAt)}），正在后台更新…`
+              : `当前显示的是 ${formatCacheTime(cachedAt)} 读取的缓存数据，点「刷新数据」获取最新。`}
           </p>
         ) : null}
 
