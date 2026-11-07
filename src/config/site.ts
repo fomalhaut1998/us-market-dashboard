@@ -10,7 +10,7 @@ export const siteConfig = {
   name: "美股估值与情绪监控看板",
   version: packageJson.version,
   versionLabel: `v${packageJson.version}`,
-  releaseDate: "2026-10-31",
+  releaseDate: "2026-11-07",
   license: packageJson.license ?? "MIT",
   author: "Fomalhaut",
   repository,

@@ -109,28 +109,56 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const [cachedAt, setCachedAt] = useState<number | null>(null);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const autoRefreshStarted = useRef(false);
+  /** 合并并发的强制刷新（自动刷新 + 手动点击），避免两个请求互相覆盖或重复抓取。 */
+  const refreshInFlight = useRef<Promise<void> | null>(null);
 
-  const refreshData = useCallback(async () => {
-    setRefreshing(true);
-    setError(null);
+  const refreshData = useCallback(
+    async ({ background = false }: { background?: boolean } = {}) => {
+      if (refreshInFlight.current) return refreshInFlight.current;
 
-    try {
-      const response = await fetch("/api/dashboard?refresh=1", {
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error("服务端未能返回真实数据");
-      const payload = (await response.json()) as DashboardPayload;
-      setData(payload);
-      setCachedAt(null);
-      writeCachedDashboard(payload);
-    } catch (requestError) {
-      setData((current) => current);
-      setError(requestError instanceof Error ? requestError.message : "真实数据加载失败");
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
+      const task = (async () => {
+        setRefreshing(true);
+        setError(null);
+        setRefreshMessage(null);
+
+        try {
+          const response = await fetch("/api/dashboard?refresh=1", {
+            cache: "no-store",
+          });
+          if (!response.ok) throw new Error("服务端未能返回真实数据");
+          const payload = (await response.json()) as DashboardPayload;
+          setData(payload);
+          setCachedAt(null);
+          writeCachedDashboard(payload);
+
+          // 手动点击必须给明确回执：真的抓到了就报「已更新」，被 60 秒节流挡住就报冷却秒数。
+          // 后台自动刷新（background）不打扰用户。
+          if (!background) {
+            if (response.headers.get("X-Dashboard-Refreshed") === "1") {
+              setRefreshMessage(`已更新 · ${payload.lastUpdated}`);
+            } else {
+              const seconds = Number(response.headers.get("X-Dashboard-Retry-After") ?? "60");
+              setRefreshMessage(
+                `数据已是最新，${Number.isFinite(seconds) && seconds > 0 ? seconds : 60} 秒后可再次刷新。`,
+              );
+            }
+          }
+        } catch (requestError) {
+          setData((current) => current);
+          setError(requestError instanceof Error ? requestError.message : "真实数据加载失败");
+        } finally {
+          setRefreshing(false);
+          refreshInFlight.current = null;
+        }
+      })();
+
+      refreshInFlight.current = task;
+      return task;
+    },
+    [],
+  );
 
   useEffect(() => {
     const maybeAutoRefresh = (payload: DashboardPayload) => {
@@ -139,7 +167,8 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
       if (!timestamp || Date.now() - timestamp <= AUTO_REFRESH_AFTER_MS) return;
       autoRefreshStarted.current = true;
       setCachedAt(timestamp);
-      void refreshData();
+      // 后台自动刷新不弹任何提示（含节流）；它拿到的仍是上一次真正抓到的新数据。
+      void refreshData({ background: true });
     };
 
     // 服务端首屏数据先直接展示；如果它已经过期，再在后台补一次刷新，而不是等用户手动点。
@@ -305,6 +334,12 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
         {error && data ? (
           <p className="mt-4 text-center text-xs font-semibold text-danger" role="status">
             本次刷新失败，仍显示上一次成功读取的数据。
+          </p>
+        ) : null}
+
+        {refreshMessage && data ? (
+          <p className="mt-4 text-center text-xs font-semibold text-muted" role="status">
+            {refreshMessage}
           </p>
         ) : null}
 
