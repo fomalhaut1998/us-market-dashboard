@@ -181,9 +181,21 @@ export async function fetchCboeVixHistory(forceRefresh: boolean): Promise<Market
   };
 }
 
-export async function resolveVixSeries(primary: MarketSeries, forceRefresh: boolean) {
+export async function resolveVixSeries(
+  primary: MarketSeries,
+  _forceRefresh: boolean,
+  fallbackLoader?: () => Promise<MarketSeries>,
+): Promise<MarketSeries> {
   if (primary.bars.length > 0) return primary;
-  return fetchCboeVixHistory(forceRefresh);
+  if (!fallbackLoader) return primary;
+
+  const fallback = await fallbackLoader();
+  if (fallback.bars.length > 0) return fallback;
+
+  return {
+    ...primary,
+    error: joinErrors([primary.error, fallback.error]),
+  };
 }
 
 export interface VixQuoteResult {

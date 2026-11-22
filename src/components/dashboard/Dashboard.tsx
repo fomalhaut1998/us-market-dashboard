@@ -5,7 +5,7 @@ import {
   dashboardMeta,
   dashboardTabs,
   tradingLocations,
-} from "@/data/mockData";
+} from "@/data/dashboardCopy";
 import type { DashboardPayload, DashboardTabId } from "@/types/dashboard";
 import { IndexView } from "./IndexView";
 import { MarketFlowBackdrop } from "./MarketFlowBackdrop";
@@ -20,7 +20,7 @@ import { ThemeToggle } from "./ThemeToggle";
 import { TradingLocationsGlobe } from "./TradingLocationsGlobe";
 
 /** 上一次成功读取的 payload：刷新（或后端冷启动）期间先把旧内容顶上，避免整屏空白。 */
-const DASHBOARD_CACHE_KEY = "us-stock-dashboard-payload-v3";
+const DASHBOARD_CACHE_KEY = "us-stock-dashboard-payload-v4";
 const DASHBOARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /** 首屏服务端数据超过这个时间就自动在后台刷新一次，避免用户手动点刷新。 */
 const AUTO_REFRESH_AFTER_MS = 10 * 60 * 1000;
@@ -28,6 +28,12 @@ const AUTO_REFRESH_AFTER_MS = 10 * 60 * 1000;
 interface CachedDashboard {
   savedAt: number;
   payload: DashboardPayload;
+}
+
+function parseTabFromSearch(search: string): DashboardTabId {
+  const tab = new URLSearchParams(search).get("tab");
+  if (tab === "sentiment" || tab === "strategy") return tab;
+  return "index";
 }
 
 function readCachedDashboard(): CachedDashboard | null {
@@ -100,19 +106,52 @@ interface DashboardProps {
   /** 服务端首屏已经取到的数据；有值时先展示，过期后再在后台补一次刷新。 */
   initialData?: DashboardPayload | null;
   initialError?: string | null;
+  /** 服务端从 URL ?tab= 解析出的初始标签页。 */
+  initialTab?: DashboardTabId;
 }
 
-export function Dashboard({ initialData = null, initialError = null }: DashboardProps = {}) {
-  const [activeTab, setActiveTab] = useState<DashboardTabId>("index");
+type RefreshFeedback =
+  | { tone: "success" | "info"; text: string }
+  | null;
+
+export function Dashboard({
+  initialData = null,
+  initialError = null,
+  initialTab = "index",
+}: DashboardProps = {}) {
+  const [activeTab, setActiveTab] = useState<DashboardTabId>(initialTab);
   const [data, setData] = useState<DashboardPayload | null>(initialData);
   const [loading, setLoading] = useState(initialData === null && initialError === null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(initialError);
   const [cachedAt, setCachedAt] = useState<number | null>(null);
-  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [refreshFeedback, setRefreshFeedback] = useState<RefreshFeedback>(null);
   const autoRefreshStarted = useRef(false);
   /** 合并并发的强制刷新（自动刷新 + 手动点击），避免两个请求互相覆盖或重复抓取。 */
   const refreshInFlight = useRef<Promise<void> | null>(null);
+
+  const handleTabChange = useCallback((nextTab: DashboardTabId) => {
+    setActiveTab(nextTab);
+    try {
+      const url = new URL(window.location.href);
+      if (nextTab === "index") {
+        url.searchParams.delete("tab");
+      } else {
+        url.searchParams.set("tab", nextTab);
+      }
+      window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    } catch {
+      // 忽略异常环境下的 history 写入错误
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveTab(parseTabFromSearch(window.location.search));
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   const refreshData = useCallback(
     async ({ background = false }: { background?: boolean } = {}) => {
@@ -121,7 +160,7 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
       const task = (async () => {
         setRefreshing(true);
         setError(null);
-        setRefreshMessage(null);
+        setRefreshFeedback(null);
 
         try {
           const response = await fetch("/api/dashboard?refresh=1", {
@@ -137,12 +176,13 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
           // 后台自动刷新（background）不打扰用户。
           if (!background) {
             if (response.headers.get("X-Dashboard-Refreshed") === "1") {
-              setRefreshMessage(`已更新 · ${payload.lastUpdated}`);
+              setRefreshFeedback({ tone: "success", text: `已更新 · ${payload.lastUpdated}` });
             } else {
               const seconds = Number(response.headers.get("X-Dashboard-Retry-After") ?? "60");
-              setRefreshMessage(
-                `数据已是最新，${Number.isFinite(seconds) && seconds > 0 ? seconds : 60} 秒后可再次刷新。`,
-              );
+              setRefreshFeedback({
+                tone: "info",
+                text: `数据已是最新，${Number.isFinite(seconds) && seconds > 0 ? seconds : 60} 秒后可再次刷新。`,
+              });
             }
           }
         } catch (requestError) {
@@ -287,10 +327,32 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
               </div>
             </div>
           </div>
+
+          {error && data ? (
+            <p
+              className="mt-4 rounded-[18px] border border-danger/35 bg-soft-danger px-4 py-2.5 text-[0.76rem] leading-5 font-semibold text-danger sm:text-xs"
+              role="status"
+              aria-live="polite"
+            >
+              本次刷新失败，仍显示上一次成功读取的数据。
+            </p>
+          ) : refreshFeedback && data ? (
+            <p
+              className={`mt-4 rounded-[18px] border px-4 py-2.5 text-[0.76rem] leading-5 font-semibold sm:text-xs ${
+                refreshFeedback.tone === "success"
+                  ? "border-success/35 bg-soft-green text-success"
+                  : "border-soft-blue-line bg-soft-blue text-brand"
+              }`}
+              role="status"
+              aria-live="polite"
+            >
+              {refreshFeedback.text}
+            </p>
+          ) : null}
         </header>
 
         <div className="sticky top-0 z-30 -mx-4 mt-6 bg-page/85 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:mt-9 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-none">
-          <Tabs tabs={dashboardTabs} activeTab={activeTab} onChange={setActiveTab} />
+          <Tabs tabs={dashboardTabs} activeTab={activeTab} onChange={handleTabChange} />
         </div>
 
         {data && cachedAt !== null ? (
@@ -330,18 +392,6 @@ export function Dashboard({ initialData = null, initialError = null }: Dashboard
             {panel}
           </div>
         </div>
-
-        {error && data ? (
-          <p className="mt-4 text-center text-xs font-semibold text-danger" role="status">
-            本次刷新失败，仍显示上一次成功读取的数据。
-          </p>
-        ) : null}
-
-        {refreshMessage && data ? (
-          <p className="mt-4 text-center text-xs font-semibold text-muted" role="status">
-            {refreshMessage}
-          </p>
-        ) : null}
 
         <ProjectFooter />
       </div>

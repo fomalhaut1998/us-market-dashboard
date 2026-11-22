@@ -14,7 +14,7 @@ const MACRO_HEADERS = {
 const MACRO_SOURCE = "Yahoo Finance";
 const MACRO_DATA_KIND = "日线收盘（延迟）";
 
-interface YahooChartResponse {
+export interface YahooChartResponse {
   chart?: {
     result?: Array<{
       timestamp?: number[];
@@ -49,28 +49,37 @@ function errorText(error: unknown) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function parseYahooBars(payload: YahooChartResponse): DailyBar[] {
+/** 解析 Yahoo Chart 响应并按自然日去重（同日保留最后一条有效收盘），按日期升序返回。 */
+export function parseYahooBars(payload: YahooChartResponse): DailyBar[] {
   const result = payload.chart?.result?.[0];
   const timestamps = result?.timestamp ?? [];
   const closes = result?.indicators?.quote?.[0]?.close ?? [];
-  const bars: DailyBar[] = [];
+  const byDate = new Map<string, { timestamp: number; bar: DailyBar }>();
 
   for (let index = 0; index < Math.min(timestamps.length, closes.length); index += 1) {
     const timestamp = Number(timestamps[index]);
     const close = Number(closes[index]);
     if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
     if (!Number.isFinite(close) || close <= 0) continue;
-    bars.push({
-      date: new Date(timestamp * 1000).toISOString().slice(0, 10),
-      open: close,
-      high: close,
-      low: close,
-      close,
-      volume: null,
+    const date = new Date(timestamp * 1000).toISOString().slice(0, 10);
+    const existing = byDate.get(date);
+    if (existing && existing.timestamp > timestamp) continue;
+    byDate.set(date, {
+      timestamp,
+      bar: {
+        date,
+        open: close,
+        high: close,
+        low: close,
+        close,
+        volume: null,
+      },
     });
   }
 
-  return bars;
+  return [...byDate.values()]
+    .map((entry) => entry.bar)
+    .sort((left, right) => left.date.localeCompare(right.date));
 }
 
 async function fetchYahooDaily(symbol: string, forceRefresh: boolean): Promise<MacroFetchResult> {
@@ -127,7 +136,7 @@ function positionBandLabel(position: number) {
 }
 
 function buildRange52Week(config: MacroAssetConfig, bars: DailyBar[]): MacroRange52Week | null {
-  const range = calculateRange52Week(bars);
+  const range = calculateRange52Week(bars, config.range52wWindow);
   if (!range) return null;
   return {
     lowLabel: rangeLabel(config, range.low),
@@ -177,6 +186,7 @@ function buildAssetView(config: MacroAssetConfig, result: MacroFetchResult): Mac
     symbolLabel: config.symbolLabel,
     value: latest ? formatValue(config, latest.close) : "暂无数据",
     changeLabel: formatChange(config, change),
+    changeWindowLabel: config.changeWindowLabel,
     changeTone: toneOf(change),
     range52w: latest ? buildRange52Week(config, result.bars) : null,
     hint: config.hint,

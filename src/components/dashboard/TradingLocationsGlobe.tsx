@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { unitedStatesLandPoints, worldLandPoints } from "@/data/globeLandPoints";
-import type { TradingLocationData } from "@/data/mockData";
+import type { TradingLocationData } from "@/data/dashboardCopy";
 
 interface TradingLocationsGlobeProps {
   locations: TradingLocationData[];
@@ -37,6 +37,7 @@ interface ProjectedLocation extends ProjectedPoint {
 
 const INITIAL_VIEW: GlobeView = { longitude: -98, latitude: 38 };
 const DEG_TO_RAD = Math.PI / 180;
+const STATIC_FALLBACK_MEDIA = "(max-width: 767px), (hover: none), (pointer: coarse)";
 
 function normalizeLongitude(longitude: number) {
   return ((((longitude + 180) % 360) + 360) % 360) - 180;
@@ -70,6 +71,40 @@ function projectPoint(
     depth,
     visible: depth > 0.015,
   };
+}
+
+function buildGeometry(bounds: DOMRect): CanvasGeometry {
+  return {
+    centerX: bounds.width * 0.5,
+    centerY: bounds.height * 0.5,
+    radius: Math.min(bounds.width, bounds.height) * 0.43,
+    width: bounds.width,
+    height: bounds.height,
+  };
+}
+
+function computeProjectedLocations(
+  locations: TradingLocationData[],
+  view: GlobeView,
+  bounds: DOMRect,
+): ProjectedLocation[] {
+  const geometry = buildGeometry(bounds);
+  return locations.map((location) => {
+    const point = projectPoint(location.longitude, location.latitude, view, geometry);
+    const viewportX = bounds.left + point.x;
+    const viewportY = bounds.top + point.y;
+    return {
+      id: location.id,
+      ...point,
+      leftPercent: (point.x / geometry.width) * 100,
+      topPercent: (point.y / geometry.height) * 100,
+      onScreen:
+        viewportX >= 8 &&
+        viewportX <= window.innerWidth - 8 &&
+        viewportY >= 8 &&
+        viewportY <= window.innerHeight - 8,
+    };
+  });
 }
 
 function interpolateLongitude(start: number, end: number, progress: number) {
@@ -117,7 +152,19 @@ function drawRoute(
 export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps) {
   const [projectedLocations, setProjectedLocations] = useState<ProjectedLocation[]>([]);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const markersRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<GlobeView>(INITIAL_VIEW);
+
+  const projectMarkersOnly = useCallback(
+    (view: GlobeView) => {
+      const container = markersRef.current;
+      if (!container) return;
+      const bounds = container.getBoundingClientRect();
+      if (bounds.width === 0 || bounds.height === 0) return;
+      setProjectedLocations(computeProjectedLocations(locations, view, bounds));
+    },
+    [locations],
+  );
 
   const renderGlobe = useCallback(
     (view: GlobeView) => {
@@ -142,13 +189,7 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       context.clearRect(0, 0, bounds.width, bounds.height);
 
-      const geometry: CanvasGeometry = {
-        centerX: bounds.width * 0.5,
-        centerY: bounds.height * 0.5,
-        radius: Math.min(bounds.width, bounds.height) * 0.43,
-        width: bounds.width,
-        height: bounds.height,
-      };
+      const geometry = buildGeometry(bounds);
       const darkMode = document.documentElement.dataset.theme === "dark";
       const accent = darkMode ? "112, 157, 255" : "62, 108, 206";
 
@@ -233,83 +274,96 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
       context.arc(geometry.centerX, geometry.centerY, geometry.radius - 0.5, 0, Math.PI * 2);
       context.stroke();
 
-      setProjectedLocations(
-        locations.map((location) => {
-          const point = projectPoint(location.longitude, location.latitude, view, geometry);
-          const viewportX = bounds.left + point.x;
-          const viewportY = bounds.top + point.y;
-          return {
-            id: location.id,
-            ...point,
-            leftPercent: (point.x / geometry.width) * 100,
-            topPercent: (point.y / geometry.height) * 100,
-            onScreen:
-              viewportX >= 8 &&
-              viewportX <= window.innerWidth - 8 &&
-              viewportY >= 8 &&
-              viewportY <= window.innerHeight - 8,
-          };
-        }),
-      );
+      setProjectedLocations(computeProjectedLocations(locations, view, bounds));
     },
     [locations],
   );
 
-
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const markers = markersRef.current;
+    if (!canvas || !markers) return;
 
-    let redrawTimer: number | null = null;
-    const renderCurrentView = () => renderGlobe(viewRef.current);
-    // 移动端切后台或锁屏后，浏览器可能回收 canvas 的后备存储；回到前台时补画一次。
-    const scheduleRedraw = () => {
-      if (redrawTimer !== null) window.clearTimeout(redrawTimer);
-      redrawTimer = window.setTimeout(() => {
-        redrawTimer = null;
-        renderCurrentView();
-      }, 120);
+    const mediaQuery = window.matchMedia(STATIC_FALLBACK_MEDIA);
+    let teardownMode: (() => void) | null = null;
+
+    const setupMode = () => {
+      teardownMode?.();
+      teardownMode = null;
+
+      if (mediaQuery.matches) {
+        // 移动端与触屏端显示静态 WebP，释放 Canvas 后备存储并跳过重绘与定时器。
+        canvas.width = 0;
+        canvas.height = 0;
+
+        const updateMarkers = () => projectMarkersOnly(viewRef.current);
+        const frameId = window.requestAnimationFrame(updateMarkers);
+        const resizeObserver = new ResizeObserver(updateMarkers);
+        resizeObserver.observe(markers);
+
+        teardownMode = () => {
+          window.cancelAnimationFrame(frameId);
+          resizeObserver.disconnect();
+        };
+        return;
+      }
+
+      let redrawTimer: number | null = null;
+      const renderCurrentView = () => renderGlobe(viewRef.current);
+      const scheduleRedraw = () => {
+        if (redrawTimer !== null) window.clearTimeout(redrawTimer);
+        redrawTimer = window.setTimeout(() => {
+          redrawTimer = null;
+          renderCurrentView();
+        }, 120);
+      };
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === "visible") scheduleRedraw();
+      };
+      const handleContextLost = (event: Event) => {
+        event.preventDefault();
+      };
+
+      const redrawWatchdog = window.setInterval(() => {
+        if (document.visibilityState === "visible") scheduleRedraw();
+      }, 60_000);
+
+      const resizeObserver = new ResizeObserver(renderCurrentView);
+      const themeObserver = new MutationObserver(renderCurrentView);
+
+      resizeObserver.observe(canvas);
+      themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme"],
+      });
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("pageshow", scheduleRedraw);
+      canvas.addEventListener("contextlost", handleContextLost);
+      canvas.addEventListener("contextrestored", scheduleRedraw);
+      const frameId = window.requestAnimationFrame(renderCurrentView);
+      scheduleRedraw();
+
+      teardownMode = () => {
+        window.cancelAnimationFrame(frameId);
+        resizeObserver.disconnect();
+        themeObserver.disconnect();
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener("pageshow", scheduleRedraw);
+        canvas.removeEventListener("contextlost", handleContextLost);
+        canvas.removeEventListener("contextrestored", scheduleRedraw);
+        window.clearInterval(redrawWatchdog);
+        if (redrawTimer !== null) window.clearTimeout(redrawTimer);
+      };
     };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") scheduleRedraw();
-    };
-    const handleContextLost = (event: Event) => {
-      event.preventDefault();
-    };
 
-    // 兜底：部分移动浏览器在页面可见时也可能回收 canvas，定时补画一次。
-    const redrawWatchdog = window.setInterval(() => {
-      if (document.visibilityState === "visible") scheduleRedraw();
-    }, 60_000);
-
-    const resizeObserver = new ResizeObserver(renderCurrentView);
-    const themeObserver = new MutationObserver(renderCurrentView);
-
-    resizeObserver.observe(canvas);
-    themeObserver.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme"],
-    });
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("pageshow", scheduleRedraw);
-    canvas.addEventListener("contextlost", handleContextLost);
-    canvas.addEventListener("contextrestored", scheduleRedraw);
-    renderCurrentView();
-    // 挂载时布局可能还没稳定；补画一次，避免首次尺寸为 0 时留下空白画布。
-    scheduleRedraw();
+    setupMode();
+    mediaQuery.addEventListener("change", setupMode);
 
     return () => {
-      resizeObserver.disconnect();
-      themeObserver.disconnect();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("pageshow", scheduleRedraw);
-      canvas.removeEventListener("contextlost", handleContextLost);
-      canvas.removeEventListener("contextrestored", scheduleRedraw);
-      window.clearInterval(redrawWatchdog);
-      if (redrawTimer !== null) window.clearTimeout(redrawTimer);
+      mediaQuery.removeEventListener("change", setupMode);
+      teardownMode?.();
     };
-  }, [renderGlobe]);
-
+  }, [projectMarkersOnly, renderGlobe]);
 
   return (
     <aside
@@ -324,7 +378,7 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
       {/* 移动端用静态位图兜底：浏览器长时间挂起后可能回收 canvas 后备存储，导致整块画布变灰。 */}
       <div className="ambient-trading-globe__still" aria-hidden="true" />
 
-      <div className="ambient-trading-globe__markers" aria-hidden="true">
+      <div ref={markersRef} className="ambient-trading-globe__markers" aria-hidden="true">
         {locations.map((location) => {
           const projected = projectedLocations.find((point) => point.id === location.id);
           const visible = Boolean(projected?.visible && projected.onScreen && projected.depth > 0.08);
@@ -342,7 +396,6 @@ export function TradingLocationsGlobe({ locations }: TradingLocationsGlobeProps)
           );
         })}
       </div>
-
     </aside>
   );
 }

@@ -5,14 +5,13 @@ import path from "node:path";
 import type { SignalEvaluation } from "@/types/market";
 
 /**
- * 每日快照落盘：把每次真实计算出的指标写一行 JSON 到同一个 JSONL 文件。
+ * 每日快照落盘：把每次真实计算出的指标写一行 JSON 到同一个 JSONL 文件（或 Upstash Redis List）。
  *
- * 为什么是 JSONL 而不是 SQLite：
+ * 为什么本地默认用 JSONL 而不是 SQLite：
  * - 一年只有约 250 行（每个交易日一行），单文件不到 1 MB，不需要数据库；
  * - 纯文本，git / 记事本 / jq 都能直接看，出问题能一眼定位那一行；
- * - 不需要引入 better-sqlite3 这类原生模块（Windows 上要匹配 Node ABI，Next 还要额外
- *   配 serverExternalPackages），为这点数据量增加构建风险不划算。
- * 真到要跑复杂查询时，再用脚本把它转成 SQLite 即可，数据本身不锁死。
+ * - 不需要引入 better-sqlite3 这类原生模块，降低构建与跨平台 ABI 风险。
+ * Serverless 只读环境可通过 UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN 持久化。
  */
 
 export const SNAPSHOT_SCHEMA_VERSION = 1;
@@ -40,6 +39,8 @@ export interface DashboardSnapshotInput {
     asOf: string | null;
     ageDays: number | null;
     stale: boolean;
+    /** 当前采用的 PE 是否为 Multpl 财报估算值。 */
+    estimated?: boolean;
     /** 陈旧估值不参与倍率计算，落盘时一并记下，避免以后复盘误判。 */
     participates: boolean;
   };
@@ -91,7 +92,17 @@ export interface SnapshotWriteResult {
   file: string;
 }
 
+export interface SnapshotStorage {
+  readLastLine(): Promise<string | null>;
+  appendLine(line: string): Promise<void>;
+  readAllLines(limit: number): Promise<string[]>;
+  label(): string;
+}
+
 const DEFAULT_FILE = path.join("data", "snapshots.jsonl");
+const DEFAULT_REDIS_KEY = "us-market-dashboard:snapshots";
+const UPSTASH_MAX_ITEMS = 1000;
+const UPSTASH_TIMEOUT_MS = 5_000;
 
 /** 默认写到 <项目根>/data/snapshots.jsonl；可用 DASHBOARD_SNAPSHOT_FILE 覆盖（容器/只读盘场景）。 */
 export function snapshotFilePath() {
@@ -99,7 +110,7 @@ export function snapshotFilePath() {
   return override && override.trim() ? path.resolve(override) : path.join(process.cwd(), DEFAULT_FILE);
 }
 
-async function readLastLine(file: string): Promise<string | null> {
+async function readLastLineFromFile(file: string): Promise<string | null> {
   let handle: fs.FileHandle | null = null;
   try {
     handle = await fs.open(file, "r");
@@ -117,42 +128,152 @@ async function readLastLine(file: string): Promise<string | null> {
   }
 }
 
+export function createFileSnapshotStorage(filePath?: string): SnapshotStorage {
+  const resolved = filePath ? path.resolve(filePath) : snapshotFilePath();
+  return {
+    async readLastLine() {
+      return readLastLineFromFile(resolved);
+    },
+    async appendLine(line: string) {
+      await fs.mkdir(path.dirname(resolved), { recursive: true });
+      await fs.appendFile(resolved, `${line}\n`, "utf8");
+    },
+    async readAllLines(limit: number) {
+      try {
+        const text = await fs.readFile(resolved, "utf8");
+        return text
+          .split("\n")
+          .filter((line) => line.trim() !== "")
+          .slice(-limit);
+      } catch {
+        return [];
+      }
+    },
+    label() {
+      return resolved;
+    },
+  };
+}
+
+interface UpstashConfig {
+  url: string;
+  token: string;
+  key: string;
+}
+
+export function createUpstashSnapshotStorage(config: UpstashConfig): SnapshotStorage {
+  const baseUrl = config.url.replace(/\/+$/, "");
+  const headers = {
+    Authorization: `Bearer ${config.token}`,
+    "Content-Type": "application/json",
+  };
+
+  async function command<T>(body: unknown): Promise<T> {
+    const response = await fetch(baseUrl, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      cache: "no-store",
+      signal: AbortSignal.timeout(UPSTASH_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error(`Upstash HTTP ${response.status}`);
+    const payload = (await response.json()) as { result?: T; error?: string };
+    if (payload.error) throw new Error(payload.error);
+    return payload.result as T;
+  }
+
+  return {
+    async readLastLine() {
+      try {
+        const result = await command<string | null>(["LINDEX", config.key, -1]);
+        return typeof result === "string" && result.trim() !== "" ? result : null;
+      } catch {
+        return null;
+      }
+    },
+    async appendLine(line: string) {
+      const response = await fetch(`${baseUrl}/pipeline`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify([
+          ["RPUSH", config.key, line],
+          ["LTRIM", config.key, -UPSTASH_MAX_ITEMS, -1],
+        ]),
+        cache: "no-store",
+        signal: AbortSignal.timeout(UPSTASH_TIMEOUT_MS),
+      });
+      if (!response.ok) throw new Error(`Upstash pipeline HTTP ${response.status}`);
+      const results = (await response.json()) as Array<{ error?: string }>;
+      const failed = Array.isArray(results) ? results.find((item) => item?.error) : null;
+      if (failed?.error) throw new Error(failed.error);
+    },
+    async readAllLines(limit: number) {
+      try {
+        const count = Math.max(1, limit);
+        const result = await command<unknown>(["LRANGE", config.key, -count, -1]);
+        if (!Array.isArray(result)) return [];
+        return result.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+      } catch {
+        return [];
+      }
+    },
+    label() {
+      return `upstash:${config.key}`;
+    },
+  };
+}
+
+export function resolveSnapshotStorage(): SnapshotStorage {
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  if (url && token) {
+    const key = process.env.DASHBOARD_SNAPSHOT_REDIS_KEY?.trim() || DEFAULT_REDIS_KEY;
+    return createUpstashSnapshotStorage({ url, token, key });
+  }
+  return createFileSnapshotStorage();
+}
+
 function comparable(record: unknown) {
   const { recordedAt, ...rest } = record as Record<string, unknown>;
   void recordedAt;
   return JSON.stringify(rest);
 }
 
-async function performWrite(input: DashboardSnapshotInput): Promise<SnapshotWriteResult> {
-  const file = snapshotFilePath();
+async function performWrite(
+  input: DashboardSnapshotInput,
+  storage: SnapshotStorage,
+): Promise<SnapshotWriteResult> {
+  const target = storage.label();
   const record: DashboardSnapshotRecord = {
     schema: SNAPSHOT_SCHEMA_VERSION,
     ...input,
     recordedAt: new Date().toISOString(),
   };
 
-  const lastLine = await readLastLine(file);
+  const lastLine = await storage.readLastLine();
   if (lastLine) {
     try {
       if (comparable(JSON.parse(lastLine)) === comparable(record)) {
-        return { written: false, reason: "unchanged", file };
+        return { written: false, reason: "unchanged", file: target };
       }
     } catch {
       // 末行损坏就照常追加，不因为一行坏数据丢掉今天的记录。
     }
   }
 
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  await fs.appendFile(file, `${JSON.stringify(record)}\n`, "utf8");
-  return { written: true, reason: "written", file };
+  await storage.appendLine(JSON.stringify(record));
+  return { written: true, reason: "written", file: target };
 }
 
-// 同一进程内串行化写入，避免并发请求把两行交错写进文件。
+// 同一进程内串行化写入，避免并发请求把两行交错写进存储。
 let writeChain: Promise<unknown> = Promise.resolve();
 
 /** 落盘一次快照。永不抛错：看板展示不能因为写盘失败而挂掉。 */
-export async function recordDashboardSnapshot(input: DashboardSnapshotInput): Promise<SnapshotWriteResult> {
-  const task = writeChain.then(() => performWrite(input));
+export async function recordDashboardSnapshot(
+  input: DashboardSnapshotInput,
+  storage: SnapshotStorage = resolveSnapshotStorage(),
+): Promise<SnapshotWriteResult> {
+  const task = writeChain.then(() => performWrite(input, storage));
   writeChain = task.catch(() => undefined);
   try {
     return await task;
@@ -160,7 +281,7 @@ export async function recordDashboardSnapshot(input: DashboardSnapshotInput): Pr
     return {
       written: false,
       reason: "error",
-      file: snapshotFilePath(),
+      file: storage.label(),
     };
   }
 }
@@ -172,13 +293,15 @@ export function latestPerMarketDate(records: DashboardSnapshotRecord[]): Dashboa
   return [...byDate.values()].sort((a, b) => a.marketDate.localeCompare(b.marketDate));
 }
 
-/** 读回历史快照（按写入顺序，最新的在最后）。供以后做"上次 2× 是什么时候"之类的复盘用。 */
-export async function readSnapshots(limit = 400): Promise<DashboardSnapshotRecord[]> {
-  const file = snapshotFilePath();
+/** 读回历史快照（按写入顺序，最新的在最后）。 */
+export async function readSnapshots(
+  limit = 400,
+  storage: SnapshotStorage = resolveSnapshotStorage(),
+): Promise<DashboardSnapshotRecord[]> {
   try {
-    const text = await fs.readFile(file, "utf8");
+    const lines = await storage.readAllLines(limit);
     const records: DashboardSnapshotRecord[] = [];
-    for (const line of text.split("\n")) {
+    for (const line of lines) {
       if (!line.trim()) continue;
       try {
         records.push(JSON.parse(line) as DashboardSnapshotRecord);

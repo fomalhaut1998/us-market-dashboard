@@ -4,6 +4,24 @@ function closesFromBars(bars: DailyBar[]) {
   return bars.map((bar) => bar.close).filter(Number.isFinite);
 }
 
+/** 按重叠交易日对齐两条日线序列（按日期升序），避免跨日比较或相减。 */
+export function alignBarsByDate(
+  baseBars: DailyBar[],
+  targetBars: DailyBar[],
+): { base: DailyBar[]; target: DailyBar[] } {
+  const baseByDate = new Map(baseBars.map((bar) => [bar.date, bar]));
+  const targetByDate = new Map(targetBars.map((bar) => [bar.date, bar]));
+
+  const commonDates = [...baseByDate.keys()]
+    .filter((date) => targetByDate.has(date))
+    .sort((left, right) => left.localeCompare(right));
+
+  return {
+    base: commonDates.map((date) => baseByDate.get(date)!),
+    target: commonDates.map((date) => targetByDate.get(date)!),
+  };
+}
+
 export function calculateWilderRsi(bars: DailyBar[], period = 6): number | null {
   const closes = closesFromBars(bars);
   if (closes.length < period + 1) return null;

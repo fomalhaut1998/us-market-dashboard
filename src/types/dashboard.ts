@@ -81,6 +81,7 @@ export interface MacroAssetView {
   symbolLabel: string;
   value: string;
   changeLabel: string;
+  changeWindowLabel: string;
   changeTone: ChangeTone;
   /** 近一年高低点区间；样本不足时为 null。 */
   range52w: MacroRange52Week | null;
@@ -126,7 +127,6 @@ export interface MultiplierHistoryView {
   rangeLabel: string;
   last2xLabel: string;
   sinceLabel: string;
-  insufficientLabel: string | null;
 }
 
 export interface MetricCardData {
@@ -180,6 +180,7 @@ export interface VixPeHistoryPoint {
   month: string;
   vix: number | null;
   pePercentile: number | null;
+  peEstimated?: boolean;
 }
 
 export interface VixPeHistoryData {

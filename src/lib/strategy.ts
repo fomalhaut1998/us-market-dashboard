@@ -1,5 +1,6 @@
 import {
   LOW_CONFIDENCE_CONFIRMATIONS,
+  MIN_CONFIRMATION_DIMENSIONS,
   VALUATION_MULTIPLIER_BANDS,
 } from "@/config/strategy";
 import type { SignalEvaluation, SignalMetricKey } from "@/types/market";
@@ -8,11 +9,12 @@ export type StrategyMultiplier = "0.25×" | "0.5×" | "1×" | "1.5×" | "2×";
 
 export type StrategyStatus = "normal" | "near" | "triggered" | "insufficient" | "valuation";
 
-/** 估值上下文：分位 + 时效。陈旧数据不参与倍率计算。 */
+/** 估值上下文：分位 + 时效 + 是否估算口径。陈旧数据不参与倍率计算。 */
 export interface StrategyValuationInput {
   percentile: number | null;
   stale: boolean;
   ageDays: number | null;
+  isEstimated?: boolean;
 }
 
 export interface StrategyDecision {
@@ -46,6 +48,7 @@ export function calculateStrategy(
   const triggered = signals.filter((signal) => signal.state === "triggered");
   const nearCount = signals.filter((signal) => signal.state === "near").length;
   const triggeredHighCount = triggered.filter((signal) => signal.confidence === "high").length;
+  const distinctDimensions = new Set(triggered.map((signal) => signal.dimension));
   const note = staleNote(valuation);
 
   if (missingCount >= 2) {
@@ -63,25 +66,41 @@ export function calculateStrategy(
   if (percentile !== null) {
     const band = VALUATION_MULTIPLIER_BANDS.find((item) => percentile >= item.minPercentile);
     if (band) {
+      const estimatedTag = valuation?.isEstimated ? "（Multpl 含近期财报估算口径）" : "";
       return {
         multiplier: band.multiplier,
         status: "valuation",
-        reason: `标普500 PE 近5年分位 ${percentile.toFixed(1)}%，${band.label}：按纪律压制加码，本次采用 ${band.multiplier} 小额定投。${note}`,
+        reason: `标普500 PE 近5年分位 ${percentile.toFixed(1)}%${estimatedTag}，${band.label}：按纪律压制加码，本次采用 ${band.multiplier} 小额定投。${note}`,
         missingCount,
         valuationBand: band.label,
       };
     }
   }
 
-  if (triggeredHighCount >= 1 || triggered.length >= LOW_CONFIDENCE_CONFIRMATIONS) {
+  if (
+    triggeredHighCount >= 1 ||
+    (triggered.length >= LOW_CONFIDENCE_CONFIRMATIONS &&
+      distinctDimensions.size >= MIN_CONFIRMATION_DIMENSIONS)
+  ) {
     const confirmation =
       triggeredHighCount >= 1
         ? `其中 ${triggeredHighCount} 项为高置信指标，已满足确认条件`
-        : `共 ${triggered.length} 项指标同时触发，已互相确认`;
+        : `共 ${triggered.length} 项跨维度指标同时触发，已互相确认`;
     return {
       multiplier: "2×",
       status: "triggered",
       reason: `有 ${triggered.length} 项指标触发极端买入信号（${confirmation}），按纪律采用 2× 分批投入。${note}`,
+      missingCount,
+      valuationBand: null,
+    };
+  }
+
+  if (triggered.length >= 2) {
+    const names = triggered.map((signal) => SIGNAL_LABELS[signal.key]).join("、");
+    return {
+      multiplier: "1.5×",
+      status: "near",
+      reason: `已触发的 ${names} 均为同维度低置信指标，缺少跨维度（波动率 / 情绪 / 估值）确认，按纪律暂维持 1.5×。${note}`,
       missingCount,
       valuationBand: null,
     };
@@ -92,7 +111,7 @@ export function calculateStrategy(
     return {
       multiplier: "1.5×",
       status: "near",
-      reason: `只有 ${SIGNAL_LABELS[only.key]} 一项低置信指标触发，缺少第二项确认，按纪律只提到 1.5×；再出现一项触发即升级到 2×。${note}`,
+      reason: `只有 ${SIGNAL_LABELS[only.key]} 一项低置信指标触发，缺少跨维度第二项确认，按纪律只提到 1.5×；再出现一项跨维度触发即升级到 2×。${note}`,
       missingCount,
       valuationBand: null,
     };

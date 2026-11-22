@@ -5,8 +5,6 @@ import type { CreditSpreadData, CreditSpreadState } from "@/types/market";
 
 const FRED_GRAPH_URL = "https://fred.stlouisfed.org/graph/fredgraph.csv";
 const FRED_API_URL = "https://api.stlouisfed.org/fred/series/observations";
-/** 免费申请的 FRED key（https://fredaccount.stlouisfed.org/apikeys）。有 key 时优先走官方 JSON 接口，通常 1 秒内返回。 */
-const FRED_API_KEY = (process.env.FRED_API_KEY ?? "").trim();
 const HY_OAS_SERIES_ID = "BAMLH0A0HYM2";
 /** 该序列 T+1 公布、每天只更新一次，没必要跟着行情 30 分钟刷一次。 */
 const CREDIT_CACHE_SECONDS = 21_600;
@@ -22,6 +20,11 @@ const FRED_TIMEOUT_MS = 24_000;
  */
 const SOFT_DEADLINE_MS = 6_000;
 const SOURCE = "FRED · ICE BofA 美国高收益债 OAS";
+
+/** 运行时动态读取 key，便于测试与配置更新。 */
+function getFredApiKey() {
+  return (process.env.FRED_API_KEY ?? "").trim();
+}
 
 function delay(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -61,11 +64,11 @@ function csvUrl() {
   return `${FRED_GRAPH_URL}?id=${HY_OAS_SERIES_ID}&cosd=${from}&coed=${to}`;
 }
 
-function apiUrl() {
+function apiUrl(apiKey: string) {
   const { from, to } = requestWindow();
   const params = new URLSearchParams({
     series_id: HY_OAS_SERIES_ID,
-    api_key: FRED_API_KEY,
+    api_key: apiKey,
     file_type: "json",
     observation_start: from,
     observation_end: to,
@@ -74,24 +77,10 @@ function apiUrl() {
   return `${FRED_API_URL}?${params.toString()}`;
 }
 
-/** 官方 JSON 接口：有 key 时优先走这条，比 CSV 端点稳定得多。 */
-async function fetchCreditSeriesViaApi(forceRefresh: boolean): Promise<CreditSpreadPoint[]> {
-  const response = await fetch(apiUrl(), {
-    headers: { Accept: "application/json" },
-    ...(forceRefresh ? { cache: "no-store" as const } : { next: { revalidate: CREDIT_CACHE_SECONDS } }),
-    signal: AbortSignal.timeout(FRED_TIMEOUT_MS),
-  });
-
-  if (!response.ok) {
-    const detail = await response
-      .json()
-      .then((payload: { error_message?: string }) => payload.error_message ?? "")
-      .catch(() => "");
-    throw new Error(`FRED API HTTP ${response.status}${detail ? `：${detail}` : ""}`);
-  }
-
-  const payload = (await response.json()) as { observations?: { date?: string; value?: string }[] };
-  const points = (payload.observations ?? [])
+export function parseFredApiObservations(
+  observations: Array<{ date?: string; value?: string }> | undefined,
+): CreditSpreadPoint[] {
+  const points = (observations ?? [])
     .map((row): CreditSpreadPoint | null => {
       const date = (row.date ?? "").trim().slice(0, 10);
       const raw = (row.value ?? "").trim();
@@ -107,16 +96,8 @@ async function fetchCreditSeriesViaApi(forceRefresh: boolean): Promise<CreditSpr
   return points;
 }
 
-async function fetchCreditSeriesViaCsv(forceRefresh: boolean): Promise<CreditSpreadPoint[]> {
-  const response = await fetch(csvUrl(), {
-    headers: { Accept: "text/csv" },
-    ...(forceRefresh ? { cache: "no-store" as const } : { next: { revalidate: CREDIT_CACHE_SECONDS } }),
-    signal: AbortSignal.timeout(FRED_TIMEOUT_MS),
-  });
-
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-  const rows = (await response.text()).trim().split(/\r?\n/);
+export function parseFredCsv(csvText: string): CreditSpreadPoint[] {
+  const rows = csvText.trim().split(/\r?\n/);
   const header = rows.shift()?.split(",").map((value) => value.replaceAll('"', "").trim().toUpperCase());
   if (!header) throw new Error("FRED CSV 缺少表头");
 
@@ -142,15 +123,45 @@ async function fetchCreditSeriesViaCsv(forceRefresh: boolean): Promise<CreditSpr
     .sort((left, right) => left.date.localeCompare(right.date));
 
   if (points.length === 0) throw new Error(`FRED CSV 中没有有效数据（${HY_OAS_SERIES_ID}）`);
-
   return points;
 }
 
-async function fetchCreditSeries(forceRefresh: boolean): Promise<CreditSpreadPoint[]> {
-  if (!FRED_API_KEY) return fetchCreditSeriesViaCsv(forceRefresh);
+/** 官方 JSON 接口：有 key 时优先走这条，比 CSV 端点稳定得多。 */
+async function fetchCreditSeriesViaApi(apiKey: string, forceRefresh: boolean): Promise<CreditSpreadPoint[]> {
+  const response = await fetch(apiUrl(apiKey), {
+    headers: { Accept: "application/json" },
+    ...(forceRefresh ? { cache: "no-store" as const } : { next: { revalidate: CREDIT_CACHE_SECONDS } }),
+    signal: AbortSignal.timeout(FRED_TIMEOUT_MS),
+  });
+
+  if (!response.ok) {
+    const detail = await response
+      .json()
+      .then((payload: { error_message?: string }) => payload.error_message ?? "")
+      .catch(() => "");
+    throw new Error(`FRED API HTTP ${response.status}${detail ? `：${detail}` : ""}`);
+  }
+
+  const payload = (await response.json()) as { observations?: { date?: string; value?: string }[] };
+  return parseFredApiObservations(payload.observations);
+}
+
+async function fetchCreditSeriesViaCsv(forceRefresh: boolean): Promise<CreditSpreadPoint[]> {
+  const response = await fetch(csvUrl(), {
+    headers: { Accept: "text/csv" },
+    ...(forceRefresh ? { cache: "no-store" as const } : { next: { revalidate: CREDIT_CACHE_SECONDS } }),
+    signal: AbortSignal.timeout(FRED_TIMEOUT_MS),
+  });
+
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return parseFredCsv(await response.text());
+}
+
+async function fetchCreditSeries(apiKey: string, forceRefresh: boolean): Promise<CreditSpreadPoint[]> {
+  if (!apiKey) return fetchCreditSeriesViaCsv(forceRefresh);
 
   try {
-    return await fetchCreditSeriesViaApi(forceRefresh);
+    return await fetchCreditSeriesViaApi(apiKey, forceRefresh);
   } catch (apiError) {
     // 400/401/403 基本就是 key 不对，退回 CSV 也没用，直接把原因报出来。
     if (apiError instanceof Error && /FRED API HTTP (400|401|403)/.test(apiError.message)) throw apiError;
@@ -169,6 +180,7 @@ function staleReason(fallback: boolean) {
 }
 
 export async function fetchCreditSpreadInputs(forceRefresh: boolean): Promise<CreditSpreadInputs> {
+  const apiKey = getFredApiKey();
   const now = Date.now();
   if (!forceRefresh && now < cooldownUntil) {
     const minutes = Math.max(1, Math.ceil((cooldownUntil - now) / 60_000));
@@ -178,7 +190,7 @@ export async function fetchCreditSpreadInputs(forceRefresh: boolean): Promise<Cr
     };
   }
 
-  const task = fetchCreditSeries(forceRefresh);
+  const task = fetchCreditSeries(apiKey, forceRefresh);
   // 后台任务即使没人等，也要把 rejection 收掉，避免 unhandledRejection；成功时顺手记住样本。
   task.then(
     (points) => {
@@ -188,7 +200,7 @@ export async function fetchCreditSpreadInputs(forceRefresh: boolean): Promise<Cr
   );
 
   // 有 key 时走官方接口（实测国内访问约 3–5s），给更宽松的等待时间；CSV 端点则保持短等待。
-  const softDeadlineMs = FRED_API_KEY ? 12_000 : SOFT_DEADLINE_MS;
+  const softDeadlineMs = apiKey ? 12_000 : SOFT_DEADLINE_MS;
   const outcome = await Promise.race([
     task.then(
       (points) => ({ ok: true as const, points }),

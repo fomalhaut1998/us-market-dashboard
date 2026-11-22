@@ -1,4 +1,4 @@
-import { sensitivitySection } from "@/data/mockData";
+import { sensitivitySection } from "@/data/dashboardCopy";
 import type { SensitivityView } from "@/types/dashboard";
 import { statusToneStyles } from "./MetricCard";
 import { SectionCard } from "./SectionCard";

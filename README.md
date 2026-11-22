@@ -43,7 +43,7 @@
 **指数指标**
 
 - 六项行情：SPY、QQQ、DIA、SOXX、IWM 与纳斯达克综合指数，含 52 周区间、距 52 周高点、数据来源与数据日期。
-- 相对强弱：各标的近 20 / 60 个交易日相对 SPY 的超额收益，用来判断行情是普涨还是少数权重在拉。
+- 相对强弱：各标的与 SPY 对齐共同交易日后，计算近 20 / 60 个交易日相对 SPY 的超额收益，用来判断行情是普涨还是少数权重在拉。
 - 跨资产背景：原油（USO）、10 年期美债收益率（^TNX）、黄金（GLD）、比特币（BTC-USD）的最新值、近 20 个交易日变化与 52 周区间；只作背景读数，不参与倍率。
 - 指数综合判断：估值、趋势位置、短期表现与操作提示。
 
@@ -53,7 +53,7 @@
 - 波动率结构：9 天、30 天、3 个月 VIX，期限结构比值，以及 SKEW / VVIX 的 5 年分位。
 - 市场宽度：RSP（标普 500 等权）与 SPY（市值权）的强弱差与比值分位。
 - 信用市场：美国高收益债 OAS、5 年分位与 20 日变化。
-- VIX / PE 历史走势与指标解释，每个面板都写明口径和注意事项。
+- VIX / PE 历史走势（支持悬停 / 点击 / 键盘切换月份查看精确数值，并区分近期估算值）与指标解释，每个面板都写明口径和注意事项。
 
 **策略与纪律**
 
@@ -65,11 +65,11 @@
 **体验与工程**
 
 - 浅色 / 深色主题，默认按本地时间自动选择并记住选择。
-- 移动端适配、粘性标签栏、冷启动骨架屏。
+- 移动端适配（触屏跳过 Canvas 地球后台绘制）、URL 同步标签状态（`?tab=`）、粘性标签栏、冷启动骨架屏。
 - 服务端 30 分钟缓存，手动刷新有 60 秒节流，避免打爆免费额度；节流窗口内返回上一次真正抓取的新数据，不会退回旧缓存。
 - 数据源失败时自动回退并显示提示；缺失指标不会用模拟值填充。
 - 浏览器端缓存上一次成功读取的数据，冷启动时先展示旧数据再后台更新；首屏数据超过 10 分钟会自动在后台刷新一次。
-- 手动点「刷新数据」每次都给可见回执（「已更新 · 时间」或「数据已是最新，N 秒后可再次刷新」），后台自动刷新保持静默。
+- 手动点「刷新数据」每次都在页头给出可见回执（「已更新 · 时间」或「数据已是最新，N 秒后可再次刷新」），后台自动刷新保持静默。
 - 页头与页脚展示开源仓库、版本号、发布记录与许可信息。
 - 统一的站点图标（SVG / PNG / Apple Touch Icon）与页头品牌标记。
 
@@ -79,7 +79,7 @@
 
 备用地址：<https://us-market-dashboard-gules.vercel.app>
 
-演示站由 Vercel 从 `main` 分支自动部署。演示环境没有持久化磁盘，倍率轨迹可能随实例重建而清空；本地或自建服务部署可以保留 `data/snapshots.jsonl`。
+演示站由 Vercel 从 `main` 分支自动部署。默认无持久化磁盘，配置 `UPSTASH_REDIS_REST_URL` 与 `UPSTASH_REDIS_REST_TOKEN` 后可在 Serverless 环境持久化倍率轨迹；本地或自建服务部署默认写入 `data/snapshots.jsonl`。
 
 ## 技术栈
 
@@ -123,23 +123,26 @@ npm run start
 
 | 变量 | 必填 | 用途 |
 | --- | --- | --- |
-| `TWELVE_DATA_API_KEY` | 推荐 | SPY / QQQ / DIA / SOXX / IWM / IXIC 与 VIX 的日线。免费档约 8 credits/分钟，整页一次刷新会用到 7 个符号。 |
-| `FMP_API_KEY` | 可选 | Twelve Data 不提供纳斯达克综合指数时，用 `^IXIC` 兜底。免费档可用范围有限。 |
+| `TWELVE_DATA_API_KEY` | 推荐 | SPY / QQQ / DIA / SOXX / IWM / IXIC 的日线。免费档约 8 credits/分钟，整页一次刷新用到 6 个符号（VIX 日线已优先直连 Cboe）。 |
+| `FMP_API_KEY` | 可选 | Twelve Data 不提供纳斯达克综合指数或 SPY 兜底时，用 `^IXIC` / `SPY` 回退。免费档可用范围有限。 |
 | `FRED_API_KEY` | 可选 | 高收益债 OAS（`BAMLH0A0HYM2`）。不填会回退到 fredgraph CSV，速度较慢。免费申请：<https://fredaccount.stlouisfed.org/apikeys> |
 | `TWELVE_DATA_NASDAQ_SYMBOL` | 可选 | 纳斯达克综合指数代码，默认 `IXIC`。 |
-| `TWELVE_DATA_VIX_SYMBOL` | 可选 | VIX 代码，默认 `VIX`。 |
+| `TWELVE_DATA_VIX_SYMBOL` | 可选 | Cboe 不可用时，Twelve Data 兜底 VIX 的代码，默认 `VIX`。 |
 | `DASHBOARD_SNAPSHOT_FILE` | 可选 | 倍率轨迹快照路径，默认 `<项目根>/data/snapshots.jsonl`。只读文件系统或容器可指向可写目录。 |
+| `UPSTASH_REDIS_REST_URL` | 可选 | Upstash Redis REST 地址；与 `UPSTASH_REDIS_REST_TOKEN` 同时配置后，倍率轨迹写入 Redis（适合 Vercel 等 Serverless 部署）。 |
+| `UPSTASH_REDIS_REST_TOKEN` | 可选 | Upstash Redis REST 鉴权 Token。 |
+| `DASHBOARD_SNAPSHOT_REDIS_KEY` | 可选 | Upstash Redis List 键名，默认 `us-market-dashboard:snapshots`。 |
 
 ## 数据来源与延迟
 
 | 数据 | 来源 | 说明 |
 | --- | --- | --- |
 | 指数 / ETF 行情 | Twelve Data → Nasdaq → Financial Modeling Prep | 依次回退；Twelve Data 返回 429 后冷却 5 分钟，再失败则使用最近一次成功的数据。 |
-| 跨资产背景 | Yahoo Finance | 原油 USO、10 年期美债收益率 ^TNX、黄金 GLD、比特币 BTC-USD；日线收盘，单独缓存 4 小时；单资产失败时沿用上次成功样本，不阻塞主行情。 |
-| VIX | Cboe / Yahoo Finance | 日线历史用 Cboe 官方收盘；盘中现价用 Yahoo Finance，失败时回退 Cboe 延迟报价（约 15–20 分钟）。 |
+| 跨资产背景 | Yahoo Finance | 原油 USO、10 年期美债收益率 ^TNX、黄金 GLD、比特币 BTC-USD；日线收盘（按自然日去重），单独缓存 4 小时；传统资产按 252 交易日、比特币按 365 自然日算 52 周区间；单资产失败时沿用上次成功样本，不阻塞主行情。 |
+| VIX | Cboe / Yahoo Finance | 日线历史优先直连 Cboe 官方收盘（失败时回退 Twelve Data）；盘中现价用 Yahoo Finance，失败时回退 Cboe 延迟报价（约 15–20 分钟）。 |
 | SKEW、VVIX | Cboe | 官方日线收盘。 |
 | 恐惧贪婪 | CNN | 公开页面上的当前分数。 |
-| 标普 500 PE | Multpl | 月度数据，只取非估算值；滞后超过 45 天时只标注、不参与倍率计算。 |
+| 标普 500 PE | Multpl | 月度表，同月优先取非估算实际值；实际值滞后超过 45 天时，回退使用近期财报估算值并明确标明口径，仍滞后超过 45 天时才只标注、不参与倍率计算。 |
 | 高收益债 OAS | FRED | `BAMLH0A0HYM2`，T+1 公布的日频数据。 |
 | 市场宽度 | RSP / SPY | RSP 行情单独缓存 2 小时；SPY 走整页 30 分钟缓存。 |
 
@@ -165,8 +168,8 @@ npm run start
 倍率只由固定规则计算，不做预测：
 
 - **估值优先**：标普 500 PE 近 5 年分位 **≥ 90% → 0.25×**，**≥ 80% → 0.5×**；PE 数据陈旧时不参与。
-- 有 1 项高置信信号触发，或 2 项信号互相确认 → **2×**。
-- 只有 RSI(6) 或 QQQ 200 日均线一项低置信信号触发 → **1.5×**；有信号进入观察区也记 **1.5×**。
+- 有 1 项高置信信号触发，或 2 项不同维度（波动率 / 情绪 / 估值 / 价格）信号互相确认 → **2×**。
+- 只有 RSI(6) 或 QQQ 200 日均线一项（或仅同价格维度）低置信信号触发 → **1.5×**；有信号进入观察区也记 **1.5×**。
 - 其余情况维持 **1×**。
 
 阈值集中在 [`src/config/thresholds.ts`](src/config/thresholds.ts)，信号置信度与倍率档位在 [`src/config/strategy.ts`](src/config/strategy.ts)。修改规则后请同步更新页面文案与测试预期。
@@ -187,9 +190,9 @@ npm run start
 - 手动刷新走 `/api/dashboard?refresh=1`，服务端做 60 秒节流；页面上的「刷新数据」按钮也会触发一次强制刷新。节流窗口内的强制刷新返回「上一次真正抓取到的新数据」，不再退回最多 30 分钟前的 SSR 首屏缓存；并发强制刷新合并为同一个请求，抓取失败不占用节流窗口。
 - 浏览器端把最近一次成功结果写入 `localStorage`（24 小时），服务端冷启动期间先显示旧数据。首屏服务端数据或本地缓存超过 10 分钟时，页面会自动请求一次 `/api/dashboard?refresh=1`，并显示「正在后台更新」提示；该请求仍受 60 秒节流，且保持静默、不弹回执。
 - 手动刷新每次给可见回执：「已更新 · 时间」表示真抓到了，「数据已是最新，N 秒后可再次刷新」表示处于冷却期。情绪与说明多为日线 / 月度指标，同一交易日内重抓数字也可能不变，回执用来区分「没刷新」与「刷新了但数字没变」。
-- 每次有效计算会向 `data/snapshots.jsonl` 追加一条快照（本地文件，已在 `.gitignore` 中排除）；同一交易日以最后一条为准，策略页的倍率轨迹从这里读取。
+- 每次有效计算会追加一条快照（默认本地 `data/snapshots.jsonl`，已在 `.gitignore` 中排除；或配置 Upstash Redis）；同一交易日以最后一条为准，策略页的倍率轨迹从这里读取。
 - 首次冷启动需要抓取多个数据源，通常 10–20 秒；之后 30 分钟内直接读缓存。
-- Serverless / 只读文件系统下写盘会失败，但不会影响页面展示；可用 `DASHBOARD_SNAPSHOT_FILE` 指向可写路径，或接受轨迹不持久化。
+- Serverless / 只读文件系统下建议配置 `UPSTASH_REDIS_REST_URL` 与 `UPSTASH_REDIS_REST_TOKEN` 持久化轨迹；若不配置，可用 `DASHBOARD_SNAPSHOT_FILE` 指向可写路径，或接受轨迹不持久化。
 
 ## API
 
@@ -224,9 +227,9 @@ npm run start
 
 注意事项：
 
-- Vercel 的文件系统只读，快照写入会失败；如需保留倍率轨迹，把 `DASHBOARD_SNAPSHOT_FILE` 指向 `/tmp/...`，但实例重建后会清空。
+- Vercel 的文件系统只读，推荐配置 `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` 持久化倍率轨迹；若只临时测试，可把 `DASHBOARD_SNAPSHOT_FILE` 指向 `/tmp/...`（实例重建后会清空）。
 - 服务端缓存是进程内 / 实例级的；多实例部署时各自缓存，数据可能短暂不一致。
-- 免费行情额度有限，整页刷新会用到 7 个符号，请勿频繁点击刷新。
+- 免费行情额度有限，整页刷新会用到 6 个符号，请勿频繁点击刷新。
 
 ### 自建 Node 服务
 
@@ -247,7 +250,7 @@ npm run start
 src/app                   页面、布局与 /api/dashboard
 src/components/dashboard  面板、图表、标签页与交互组件
 src/config                阈值、策略、市场与站点元信息
-src/data                  文案、地球点云等静态数据
+src/data                  静态文案（dashboardCopy.ts）、地球点云等静态数据
 src/lib                   指标计算与策略判断
 src/lib/server            取数、缓存、备用源、数据组装与快照
 src/types                 数据类型
@@ -265,8 +268,10 @@ data/snapshots.jsonl      运行时生成的倍率快照（gitignored）
 | `npm run start` | 启动生产服务 |
 | `npm run lint` | ESLint |
 | `npm run typecheck` | TypeScript 类型检查 |
+| `npm test` | Vitest 单元测试 |
+| `npm run test:watch` | Vitest 监听模式 |
 
-提交前建议依次运行 `npm run lint`、`npm run typecheck`、`npm run build`。仓库的 GitHub Actions CI 会执行同样的检查。
+提交前建议依次运行 `npm run lint`、`npm run typecheck`、`npm test`、`npm run build`。仓库的 GitHub Actions CI 会执行同样的检查。
 
 ## 常见问题
 
@@ -280,7 +285,7 @@ data/snapshots.jsonl      运行时生成的倍率快照（gitignored）
 
 **Twelve Data 返回 429 怎么办？**
 
-免费档约 8 credits/分钟，整页一次刷新会用到 7 个符号。触发 429 后会冷却 5 分钟，并尝试 Nasdaq / FMP 备用源；等待几分钟再刷新即可。
+免费档约 8 credits/分钟，整页一次刷新会用到 6 个符号。触发 429 后会冷却 5 分钟，并尝试 Nasdaq / FMP 备用源；等待几分钟再刷新即可。
 
 **「跨资产背景」参与倍率吗？**
 
@@ -288,11 +293,11 @@ data/snapshots.jsonl      运行时生成的倍率快照（gitignored）
 
 **PE 为什么显示「已滞后 N 天」？**
 
-Multpl 的 PE 是月度数据，不是每日更新。滞后超过 45 天时页面只标注数据日期，不把它纳入倍率计算，这是刻意设计，不是缺数据。
+Multpl 的 PE 是月度数据；当非估算实际值滞后超过 45 天时，看板会优先采用 Multpl 提供的近期财报估算值并明确标明口径；只有连最新可用观测都超过 45 天时，才只展示不参与倍率计算。
 
 **倍率轨迹一直是空的 / 不增长？**
 
-快照默认写入项目根目录的 `data/snapshots.jsonl`。Vercel 等只读文件系统无法写入，需要设置 `DASHBOARD_SNAPSHOT_FILE` 指向可写路径；Serverless 的 `/tmp` 在实例重建后会丢失。同一交易日的重复计算会去重。
+本地默认写入项目根目录的 `data/snapshots.jsonl`。Vercel 等只读文件系统可配置 `UPSTASH_REDIS_REST_URL` 与 `UPSTASH_REDIS_REST_TOKEN` 写入 Upstash Redis，或设置 `DASHBOARD_SNAPSHOT_FILE` 指向可写路径；同一交易日的重复计算会去重。
 
 **主题是怎么选的？**
 
@@ -304,7 +309,7 @@ Multpl 的 PE 是月度数据，不是每日更新。滞后超过 45 天时页�
 
 ## 版本与发布
 
-当前版本 **v1.3.2**（2026-11-07）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
+当前版本 **v1.4.0**（2026-11-22）。版本号只维护在 [`package.json`](package.json)，页面徽章、页脚和 Release 链接都从 [`src/config/site.ts`](src/config/site.ts) 派生。
 
 - 发布记录：<https://github.com/fomalhaut1998/us-market-dashboard/releases>
 - 变更历史：[CHANGELOG.md](CHANGELOG.md)
@@ -316,7 +321,7 @@ Multpl 的 PE 是月度数据，不是每日更新。滞后超过 45 天时页�
 
 1. 先开 Issue 描述问题或需求，避免大改后才发现方向不一致。
 2. Fork 仓库，从 `main` 建分支。
-3. 提交前运行 `npm run lint && npm run typecheck && npm run build`。
+3. 提交前运行 `npm run lint && npm run typecheck && npm test && npm run build`。
 4. PR 里说明改动动机、数据口径变化和验证方式；涉及界面的改动请附截图。
 
 请勿在代码、Issue 或截图中提交 API key、Cookie 等敏感信息。数据源的使用需遵守各来源的条款。

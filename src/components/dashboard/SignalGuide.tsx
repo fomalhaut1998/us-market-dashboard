@@ -1,4 +1,4 @@
-import { signalGuideItems, signalGuideSection } from "@/data/mockData";
+import { signalGuideItems, signalGuideSection } from "@/data/dashboardCopy";
 import { statusToneStyles } from "./MetricCard";
 import { SectionCard } from "./SectionCard";
 

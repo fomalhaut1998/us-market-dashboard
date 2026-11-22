@@ -1,4 +1,4 @@
-import { SIGNAL_CONFIDENCE } from "@/config/strategy";
+import { SIGNAL_CONFIDENCE, SIGNAL_DIMENSION } from "@/config/strategy";
 import type { SignalEvaluation, SignalMetricKey, SignalState } from "@/types/market";
 
 interface ThresholdRule {
@@ -101,5 +101,6 @@ export function evaluateSignal(key: SignalMetricKey, value: number | null): Sign
     value,
     state: value === null || !Number.isFinite(value) ? "missing" : SIGNAL_THRESHOLDS[key].evaluate(value),
     confidence: SIGNAL_CONFIDENCE[key],
+    dimension: SIGNAL_DIMENSION[key],
   };
 }

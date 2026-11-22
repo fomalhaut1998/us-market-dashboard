@@ -1,10 +1,12 @@
-import { dashboardMeta, dashboardTabs } from "@/data/mockData";
+import { dashboardMeta, dashboardTabs } from "@/data/dashboardCopy";
+import type { DashboardTabId } from "@/types/dashboard";
+import { SiteMark } from "./SiteMark";
 
 /**
  * 首屏骨架：服务端还在抓行情时先画出来，保持和真实页面同样的版式，
  * 避免用户只看到一整片空白。纯静态组件，不读任何数据。
  */
-export function DashboardSkeleton() {
+export function DashboardSkeleton({ activeTab = "index" }: { activeTab?: DashboardTabId } = {}) {
   return (
     <main
       className="relative isolate min-h-screen px-4 py-9 sm:px-6 sm:py-12 lg:px-8 lg:py-14"
@@ -13,9 +15,12 @@ export function DashboardSkeleton() {
       <div className="relative z-10 mx-auto w-full max-w-[1180px]">
         <header>
           <div className="flex items-start justify-between gap-3 sm:items-center">
-            <h1 className="text-[1.72rem] font-black tracking-[-0.035em] text-ink sm:text-[2.15rem] lg:text-[2.45rem]">
-              {dashboardMeta.title}
-            </h1>
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3.5">
+              <SiteMark className="h-10 w-10 shrink-0 drop-shadow-[0_7px_14px_rgba(23,52,130,0.24)] sm:h-12 sm:w-12" />
+              <h1 className="min-w-0 break-words text-[1.55rem] font-black tracking-[-0.035em] text-ink sm:text-[2.15rem] lg:text-[2.45rem]">
+                {dashboardMeta.title}
+              </h1>
+            </div>
             <span className="hidden h-11 w-24 shrink-0 animate-pulse items-center justify-center rounded-full border border-line bg-surface-soft sm:flex" aria-hidden="true">
               <span className="h-2.5 w-12 rounded-full bg-line/60" />
             </span>
@@ -40,11 +45,11 @@ export function DashboardSkeleton() {
 
         <div className="sticky top-0 z-30 -mx-4 mt-6 bg-page/85 px-4 py-3 backdrop-blur-md sm:static sm:mx-0 sm:mt-9 sm:bg-transparent sm:px-0 sm:py-0 sm:backdrop-blur-none">
           <div className="grid grid-cols-3 gap-2.5 sm:gap-4" aria-hidden="true">
-            {dashboardTabs.map((tab, index) => (
+            {dashboardTabs.map((tab) => (
               <div
                 key={tab.id}
                 className={`flex min-h-14 items-center justify-center rounded-[18px] border px-1.5 py-3 text-[0.86rem] font-bold shadow-[var(--shadow-tab)] sm:min-h-16 sm:rounded-[20px] sm:px-4 sm:text-lg ${
-                  index === 0
+                  tab.id === activeTab
                     ? "border-brand-solid bg-brand-solid text-white"
                     : "border-line bg-surface text-muted"
                 }`}

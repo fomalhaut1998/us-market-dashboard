@@ -2,6 +2,29 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，版本号维护在 `package.json`。
 
+## [1.4.0] - 2026-11-22
+
+### 新增
+
+- **VIX / PE 历史图交互**：支持鼠标悬停、点击与键盘左右键切换月份，展示当月精确的 VIX 与 PE 近 5 年分位读数，并以虚线及「估算」徽章区分近期 PE 财报估算段。
+- **URL 标签同步**：支持通过 `?tab=index|sentiment|strategy` 同步当前标签页（含前进/后退与服务端骨架屏高亮）。
+- **Upstash Redis 持久化支持**：为倍率快照抽象 `SnapshotStorage` 接口，配置 `UPSTASH_REDIS_REST_URL` 与 `UPSTASH_REDIS_REST_TOKEN` 后可在 Vercel 等 Serverless 只读环境下持久化倍率轨迹。
+- **Vitest 单元测试体系**：新增 7 组共 28 个单元测试（覆盖指标计算、策略规则、估值与多源解析、快照读写及 `/api/dashboard` 节流逻辑），并接入 GitHub Actions CI（`npm test`）。
+
+### 变更
+
+- **标普 500 PE 时效与估算口径**：同月优先取非估算实际值；当实际值滞后超过 45 天时，回退采用 Multpl 近期财报估算值并明确标明估算口径与最近实际值日期，避免估值压制规则长期休眠。
+- **低置信信号跨维度确认**：引入信号维度（波动率 / 情绪 / 估值 / 价格），同属价格维度的 `RSI(6)` 与 `QQQ 200 日均线` 同时触发不再自我确认升至 `2×`，需跨维度指标确认。
+- **VIX 日线直连 Cboe**：主流程直接并行获取 Cboe 官方 VIX 日线收盘（Twelve Data 仅作兜底），每次整页刷新占用 Twelve Data 免费额度由 7 个降至 6 个。
+- **跨资产与相对强弱口径对齐**：比特币 52 周区间按 `365` 自然日计算并标注「近20日」，Yahoo 日线按自然日去重；相对强弱面板先按 `alignBarsByDate` 对齐与 SPY 的共同交易日再计算超额收益，且所有数据源文案改为动态读取实际数据源。
+
+### 修复
+
+- **倍率轨迹超 12 日回溯截断**：修复 `buildMultiplierHistory` 仅在最近 12 天视图数组里检索 `2×` 导致超过 12 个交易日后误报「还没有出现过 2×」或截断连续 `2×` 起点的问题。
+- **刷新回执位置与骨架屏对齐**：将手动刷新的回执与错误提示移至页头与标签栏之间，便于点击后直接看到反馈；骨架屏页头补齐站点图标，消除水合时的横向抖动。
+- **移动端地球 Canvas 空转**：触屏与窄屏端检测到静态兜底视图后，清空 Canvas 尺寸并跳过 2D 重绘与 60 秒定时器，仅计算 6 个地标位置。
+- **环境读取与整洁清理**：`FRED_API_KEY` 改为运行时动态读取；将无模拟数据的 `mockData.ts` 重命名为 `dashboardCopy.ts`，更新主域名 `https://us-market.fomal.cc`，并清理未使用的 `tradingLocationsSection`、`insufficientLabel` 与 `public/assets/trading-globe.png`。
+
 ## [1.3.2] - 2026-11-07
 
 ### 修复
@@ -117,6 +140,10 @@
 - 行情为日线收盘或延迟数据，不是实时报价。
 - 所有指标只描述历史数据，不构成投资建议。
 
+[1.4.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.4.0
+[1.3.2]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.3.2
+[1.3.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.3.1
+[1.3.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.3.0
 [1.2.0]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.2.0
 [1.1.2]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.2
 [1.1.1]: https://github.com/fomalhaut1998/us-market-dashboard/releases/tag/v1.1.1

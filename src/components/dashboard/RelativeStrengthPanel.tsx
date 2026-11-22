@@ -1,4 +1,4 @@
-import { relativeStrengthSection } from "@/data/mockData";
+import { relativeStrengthSection } from "@/data/dashboardCopy";
 import type { ChangeTone, RelativeStrengthView } from "@/types/dashboard";
 import { SectionCard } from "./SectionCard";
 

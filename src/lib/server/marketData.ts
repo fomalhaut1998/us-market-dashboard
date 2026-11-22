@@ -1,7 +1,7 @@
 import "server-only";
 
 import { MARKET_CACHE_SECONDS, MARKET_INSTRUMENTS, VIX_INSTRUMENT } from "@/config/market";
-import type { DailyBar, MarketKey, MarketSeries } from "@/types/market";
+import type { DailyBar, EquityMarketKey, MarketKey, MarketSeries } from "@/types/market";
 
 interface TwelveDataValue {
   datetime?: string;
@@ -369,12 +369,14 @@ export async function fetchTwelveDataSeries(
 }
 
 export async function fetchAllMarketSeries(forceRefresh: boolean) {
-  const instruments = [...MARKET_INSTRUMENTS, VIX_INSTRUMENT];
   const results = await Promise.all(
-    instruments.map((instrument) =>
+    MARKET_INSTRUMENTS.map((instrument) =>
       fetchTwelveDataSeries(instrument.key, instrument.providerSymbol, forceRefresh),
     ),
   );
 
-  return Object.fromEntries(results.map((result) => [result.key, result])) as Record<MarketKey, MarketSeries>;
+  return Object.fromEntries(results.map((result) => [result.key, result])) as Record<
+    EquityMarketKey,
+    MarketSeries
+  >;
 }

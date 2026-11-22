@@ -1,9 +1,9 @@
-import type { SignalConfidence, SignalMetricKey } from "@/types/market";
+import type { SignalConfidence, SignalDimension, SignalMetricKey } from "@/types/market";
 
 /**
  * 估值数据"陈旧"门槛（天）。
- * Multpl 是月度数据，且最近几个月常被标注为估算值、会被剔除，
- * 因此留 45 天余量；超过即视为陈旧：只在界面标注，不参与倍率计算。
+ * 当真实值已滞后但 Multpl 提供近期估算值时，会以估算口径参与判断；
+ * 若连最新可用观测都超过该天数，则视为陈旧：只展示、不参与倍率计算。
  */
 export const VALUATION_STALE_DAYS = 45;
 
@@ -24,8 +24,8 @@ export const VALUATION_MULTIPLIER_BANDS: ValuationMultiplierBand[] = [
 
 /**
  * 信号置信度。RSI(6) 是纯短线噪声指标；QQQ 200 日均线是慢变量，
- * 且与 52 周回撤高度相关。两者单独触发都不足以把倍率顶到 2×，
- * 必须再有一项触发来确认。
+ * 且与 52 周回撤高度相关。两者单独触发（或仅同维度触发）都不足以把倍率顶到 2×，
+ * 必须有跨维度指标来确认。
  */
 export const SIGNAL_CONFIDENCE: Record<SignalMetricKey, SignalConfidence> = {
   vix: "high",
@@ -36,5 +36,18 @@ export const SIGNAL_CONFIDENCE: Record<SignalMetricKey, SignalConfidence> = {
   qqq200d: "low",
 };
 
+/** 信号独立维度：避免同一维度的低置信指标自我确认。 */
+export const SIGNAL_DIMENSION: Record<SignalMetricKey, SignalDimension> = {
+  vix: "volatility",
+  fearGreed: "sentiment",
+  rsi6: "price",
+  pePercentile: "valuation",
+  drawdown52w: "price",
+  qqq200d: "price",
+};
+
 /** 低置信信号需要凑满几项触发，才算互相确认、允许升到 2×。 */
 export const LOW_CONFIDENCE_CONFIRMATIONS = 2;
+
+/** 低置信确认至少需要跨越几个独立维度。 */
+export const MIN_CONFIRMATION_DIMENSIONS = 2;

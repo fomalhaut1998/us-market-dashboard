@@ -1,7 +1,7 @@
 import "server-only";
 
 import { unstable_cache } from "next/cache";
-import { MARKET_CACHE_SECONDS, MARKET_INSTRUMENTS } from "@/config/market";
+import { MARKET_CACHE_SECONDS, MARKET_INSTRUMENTS, VIX_INSTRUMENT } from "@/config/market";
 import {
   BREADTH_BANDS,
   CREDIT_SPREAD_BANDS,
@@ -18,8 +18,9 @@ import {
   tailRiskSection,
   termStructureSection,
   vixPeHistorySection,
-} from "@/data/mockData";
+} from "@/data/dashboardCopy";
 import {
+  alignBarsByDate,
   calculateDistanceFrom200DayAverage,
   calculateDrawdown52Week,
   calculateRange52Week,
@@ -56,6 +57,7 @@ import type {
   BreadthState,
   CreditSpreadData,
   CreditSpreadState,
+  EquityMarketKey,
   FearGreedData,
   MarketKey,
   MarketSeries,
@@ -78,13 +80,14 @@ import {
   recordDashboardSnapshot,
   type DashboardSnapshotRecord,
 } from "./snapshotStore";
-import { fetchAllMarketSeries } from "./marketData";
+import { fetchAllMarketSeries, fetchTwelveDataSeries } from "./marketData";
 import { fetchSpyValuation } from "./valuation";
 import {
   buildTailRisk,
   buildTermStructure,
   fetchCboeTailRiskInputs,
   fetchCboeTermStructureInputs,
+  fetchCboeVixHistory,
   fetchVixQuote,
   resolveVixSeries,
 } from "./vix";
@@ -135,6 +138,11 @@ function latestBar(series: MarketSeries) {
   return series.bars.at(-1) ?? null;
 }
 
+function combineSources(...sources: Array<string | null | undefined>) {
+  const unique = [...new Set(sources.map((s) => s?.trim()).filter((s): s is string => Boolean(s)))];
+  return unique.join(" / ") || "数据源暂无";
+}
+
 function dailyChange(series: MarketSeries) {
   const latest = series.bars.at(-1);
   const previous = series.bars.at(-2);
@@ -160,9 +168,9 @@ function rangeBandLabel(position: number) {
   return "接近一年低点";
 }
 
-function buildIndexSummaries(seriesByKey: Record<MarketKey, MarketSeries>): IndexSummary[] {
+function buildIndexSummaries(seriesByKey: Record<EquityMarketKey, MarketSeries>): IndexSummary[] {
   return MARKET_INSTRUMENTS.map((instrument) => {
-    const series = seriesByKey[instrument.key];
+    const series = seriesByKey[instrument.key as EquityMarketKey];
     const latest = latestBar(series);
     const change = dailyChange(series);
     const isEtf = instrument.assetType === "etf";
@@ -211,17 +219,25 @@ function shortInstrumentName(name: string) {
   return name.replace(/（[^）]*）/g, "").trim();
 }
 
-function buildRelativeStrength(seriesByKey: Record<MarketKey, MarketSeries>): RelativeStrengthView {
+export function buildRelativeStrength(
+  seriesByKey: Record<EquityMarketKey, MarketSeries>,
+): RelativeStrengthView {
   const spy = seriesByKey.spy;
   const spy20 = calculateReturnOverDays(spy.bars, 20);
   const spy60 = calculateReturnOverDays(spy.bars, 60);
+  const spySource = spy.bars.length > 0 ? spy.source : "数据源暂无";
+
   const rows = MARKET_INSTRUMENTS.filter((instrument) => instrument.key !== "spy")
     .map((instrument) => {
-      const series = seriesByKey[instrument.key];
-      const ret20 = calculateReturnOverDays(series.bars, 20);
-      const ret60 = calculateReturnOverDays(series.bars, 60);
-      const excess20 = ret20 === null || spy20 === null ? null : (ret20 - spy20) * 100;
-      const excess60 = ret60 === null || spy60 === null ? null : (ret60 - spy60) * 100;
+      const series = seriesByKey[instrument.key as EquityMarketKey];
+      const { base: alignedSpy, target: alignedTarget } = alignBarsByDate(spy.bars, series.bars);
+      const spyRet20 = calculateReturnOverDays(alignedSpy, 20);
+      const targetRet20 = calculateReturnOverDays(alignedTarget, 20);
+      const spyRet60 = calculateReturnOverDays(alignedSpy, 60);
+      const targetRet60 = calculateReturnOverDays(alignedTarget, 60);
+
+      const excess20 = targetRet20 === null || spyRet20 === null ? null : (targetRet20 - spyRet20) * 100;
+      const excess60 = targetRet60 === null || spyRet60 === null ? null : (targetRet60 - spyRet60) * 100;
       return { instrument, excess20, excess60 };
     })
     .sort((a, b) => (b.excess20 ?? -1e9) - (a.excess20 ?? -1e9))
@@ -236,10 +252,10 @@ function buildRelativeStrength(seriesByKey: Record<MarketKey, MarketSeries>): Re
     }));
 
   return {
-    asOfLabel: `Twelve Data · ${latestBar(spy)?.date ?? "暂无数据"} 收盘（相对 SPY）`,
+    asOfLabel: `${spySource} · ${latestBar(spy)?.date ?? "暂无数据"} 收盘（按共同交易日对齐 SPY）`,
     baselineLabel: `基准 SPY：近 20 日 ${formatPercent(spy20 === null ? null : spy20 * 100, 2, true)}，近 60 日 ${formatPercent(spy60 === null ? null : spy60 * 100, 2, true)}`,
     rows,
-    note: "超额 = 标的涨跌幅 − SPY 同期涨跌幅，单位是百分点。正数说明跑赢大盘，负数说明跑输；只描述结构强弱，不参与倍率计算。",
+    note: "超额 = 标的涨跌幅 − 同一交易日区间内 SPY 涨跌幅，单位是百分点。正数跑赢大盘，负数跑输；只描述结构强弱，不参与倍率计算。",
   };
 }
 
@@ -258,12 +274,18 @@ function badgeLabel(state: SignalState) {
   return "未触发";
 }
 
-/** PE 卡片的时效说明：陈旧时写明停更日期，避免把旧分位当成当日口径。 */
+/** PE 卡片的时效与估算口径说明。 */
 function peStateLabel(valuation: ValuationData) {
   if (valuation.currentPe === null) return "最新标普500 PE：暂无数据";
   const base = `最新标普500 PE：${formatPe(valuation.currentPe)}`;
-  if (!valuation.stale) return base;
-  return `${base}（${valuation.currentDate ?? "日期暂无数据"} 后未更新，已滞后 ${valuation.ageDays ?? "多"} 天）`;
+  if (valuation.stale) {
+    return `${base}（${valuation.currentDate ?? "日期暂无数据"} 后未更新，已滞后 ${valuation.ageDays ?? "多"} 天）`;
+  }
+  if (valuation.isEstimated) {
+    const actualRef = valuation.latestActualDate ? `；最近实际值 ${valuation.latestActualDate}` : "";
+    return `${base}（Multpl 含近期财报估算${actualRef}）`;
+  }
+  return base;
 }
 
 function peDescription(valuation: ValuationData) {
@@ -272,12 +294,25 @@ function peDescription(valuation: ValuationData) {
   if (valuation.stale) {
     return `${source} · 已滞后 ${valuation.ageDays ?? "多"} 天，仅展示、不参与倍率计算`;
   }
+  if (valuation.isEstimated) {
+    const actualNote =
+      valuation.latestActualPe !== null && valuation.latestActualDate
+        ? `（最近实际值 ${formatPe(valuation.latestActualPe)} @ ${valuation.latestActualDate}）`
+        : "";
+    return `${source} · ${valuation.dataKind}${actualNote}`;
+  }
   return `${source} · ${valuation.dataKind}`;
 }
 
 function valuationVintageSuffix(valuation: ValuationData) {
-  if (!valuation.stale) return "";
-  return `（${valuation.currentDate ?? "日期未知"} 口径，已滞后 ${valuation.ageDays ?? "多"} 天，未参与倍率）`;
+  if (valuation.stale) {
+    return `（${valuation.currentDate ?? "日期未知"} 口径，已滞后 ${valuation.ageDays ?? "多"} 天，未参与倍率）`;
+  }
+  if (valuation.isEstimated) {
+    const actualRef = valuation.latestActualDate ? `，最近实际值 ${valuation.latestActualDate}` : "";
+    return `（${valuation.currentDate ?? "近期"} Multpl 财报估算口径${actualRef}）`;
+  }
+  return "";
 }
 
 function stateDescription(state: SignalState, labels: { triggered: string; near: string; normal: string }) {
@@ -291,9 +326,10 @@ function marketCalculationDescription(
   qqqValue: string,
   spyValue: string,
   date: string | null,
+  sourceLabel: string,
   calculation: string,
 ) {
-  return `QQQ ${qqqValue} · SPY ${spyValue} · Twelve Data · ${date ?? "时间暂无数据"} · ${calculation}`;
+  return `QQQ ${qqqValue} · SPY ${spyValue} · ${sourceLabel} · ${date ?? "时间暂无数据"} · ${calculation}`;
 }
 
 function termStructureStateLabel(state: TermStructureState) {
@@ -601,6 +637,11 @@ function buildSentimentMetrics(args: {
     ? `${args.vixQuote.source} · ${args.vixQuote.quoteTimeLabel} · ${args.vixQuote.dataKind}${args.vixQuote.changePercent === null ? "" : `（较前收 ${formatPercent(args.vixQuote.changePercent, 2, true)}）`}`
     : `${args.vix.bars.length > 0 ? args.vix.source : "来源暂无数据"} · ${vixBar?.date ?? "时间暂无数据"} · ${args.vix.bars.length > 0 ? args.vix.dataKind : "暂不可用"}`;
   const qqqDate = latestBar(args.qqq)?.date ?? null;
+  const qqqSource = args.qqq.bars.length > 0 ? args.qqq.source : "数据源暂无";
+  const pairSource = combineSources(
+    args.qqq.bars.length > 0 ? args.qqq.source : null,
+    args.spy.bars.length > 0 ? args.spy.source : null,
+  );
   const signals = {
     vix: evaluateSignal("vix", vixValue),
     fearGreed: evaluateSignal("fearGreed", args.fearGreed.score),
@@ -656,6 +697,7 @@ function buildSentimentMetrics(args: {
         formatNumber(args.qqqRsi, 1),
         formatNumber(args.spyRsi, 1),
         qqqDate,
+        pairSource,
         "Wilder日线本地计算",
       ),
       tone: stateTone(signals.rsi6.state),
@@ -690,6 +732,7 @@ function buildSentimentMetrics(args: {
         formatRatioPercent(args.qqqDrawdown, 2),
         formatRatioPercent(args.spyDrawdown, 2),
         qqqDate,
+        pairSource,
         "252日最高收盘本地计算",
       ),
       tone: stateTone(signals.drawdown52w.state),
@@ -707,8 +750,8 @@ function buildSentimentMetrics(args: {
       triggerCondition: SIGNAL_THRESHOLDS.qqq200d.triggerCondition,
       description:
         args.qqqDistance200 === null
-          ? "QQQ 日线不足 200 根 · 200日收盘均线本地计算"
-          : `QQQ 收盘 vs 200日均线 · ${qqqDate ?? "时间暂无数据"} · Twelve Data · 200日收盘均线本地计算`,
+          ? `QQQ 日线不足 200 根 · ${qqqSource} · 200日收盘均线本地计算`
+          : `QQQ 收盘 vs 200日均线 · ${qqqDate ?? "时间暂无数据"} · ${qqqSource} · 200日收盘均线本地计算`,
       tone: stateTone(signals.qqq200d.state),
     },
   ];
@@ -733,7 +776,6 @@ function buildVixPeHistory(vix: MarketSeries, valuation: ValuationData): VixPeHi
   const vixLatest = latestBar(vix);
   const baseDate = vixLatest?.date ?? valuation.currentDate ?? new Date().toISOString().slice(0, 10);
   const months = monthKeys(baseDate);
-  // 每月只取“当月新出现的非估算 PE”：没有新观测的月份留空，不再把上月数值重复画平。
   const pePoints = buildMonthlyPePoints(months, valuation.history);
 
   const points: VixPeHistoryPoint[] = months.map((month, index) => {
@@ -745,13 +787,19 @@ function buildVixPeHistory(vix: MarketSeries, valuation: ValuationData): VixPeHi
       month: month.label,
       vix: monthVix?.close ?? null,
       pePercentile: pePoints[index]?.percentile ?? null,
+      peEstimated: pePoints[index]?.estimated ?? false,
     };
   });
 
   const peUnavailable = valuation.percentile === null;
+  const hasEstimatedMonths = points.some((point) => point.peEstimated);
   const staleText = valuation.stale
-    ? `标普500 PE 最新非估算值停在 ${valuation.currentDate ?? "未知日期"}（已滞后 ${valuation.ageDays ?? "多"} 天），此后各月没有新的非估算值，图上对应月份留空；当前分位仅供参照，不参与倍率计算。`
-    : "";
+    ? `标普500 PE 最新可用观测停在 ${valuation.currentDate ?? "未知日期"}（已滞后 ${valuation.ageDays ?? "多"} 天），当前分位仅供参照，不参与倍率计算。`
+    : valuation.isEstimated
+      ? `近期月份采用 Multpl 财报估算值（图上虚线区分；最近实际值停在 ${valuation.latestActualDate ?? "未知日期"}）。`
+      : hasEstimatedMonths
+        ? "近期财报尚未落定的月份采用 Multpl 估算值（图上虚线区分）。"
+        : "";
 
   return {
     ...vixPeHistorySection,
@@ -760,13 +808,15 @@ function buildVixPeHistory(vix: MarketSeries, valuation: ValuationData): VixPeHi
       valuation.percentile !== null
         ? valuation.stale
           ? `${formatPercent(valuation.percentile, 1)} · ${valuation.currentDate ?? "日期未知"} 口径`
-          : formatPercent(valuation.percentile, 1)
+          : valuation.isEstimated
+            ? `${formatPercent(valuation.percentile, 1)} · 近期估算`
+            : formatPercent(valuation.percentile, 1)
         : valuation.currentPe !== null
           ? "数据源暂不支持"
           : "暂无数据",
     analysis: peUnavailable
       ? `VIX 使用 ${vix.bars.length > 0 ? vix.source : "暂无来源"} 的月末日线收盘；${valuation.source} 估值数据暂不可用。`
-      : `VIX 使用 ${vix.source} 月末日线收盘；PE 每月只取当月新出现的非估算值，分位按近5年有效历史 PE 中“小于或等于当期 PE”的样本占比计算。${staleText}`,
+      : `VIX 使用 ${vix.source} 月末日线收盘；PE 每月优先取实际值、缺月用估算值补全，分位按近5年样本中“小于或等于当期 PE”的占比计算。${staleText}`,
     points,
   };
 }
@@ -775,6 +825,7 @@ function buildIndexConclusion(args: {
   valuation: ValuationData;
   qqqDistance200: number | null;
   qqqMomentum: number | null;
+  qqqSource: string;
   strategyMultiplier: string;
   strategyReason: string;
 }) {
@@ -787,7 +838,7 @@ function buildIndexConclusion(args: {
   const trendText =
     args.qqqDistance200 === null
       ? "QQQ 距离200日均线：暂无数据"
-      : `QQQ 距离200日均线 ${formatRatioPercent(args.qqqDistance200, 2, true)}（Twelve Data 日线本地计算）`;
+      : `QQQ 距离200日均线 ${formatRatioPercent(args.qqqDistance200, 2, true)}（${args.qqqSource} 日线本地计算）`;
   const momentumText =
     args.qqqMomentum === null
       ? "QQQ 25日涨跌幅：暂无数据"
@@ -872,18 +923,33 @@ function sensitivityGapUnit(key: SignalMetricKey) {
   return " 点";
 }
 
-function buildSensitivity(signals: SignalEvaluation[], decision: ReturnType<typeof calculateStrategy>): SensitivityView {
+function buildSensitivity(
+  signals: SignalEvaluation[],
+  decision: ReturnType<typeof calculateStrategy>,
+  valuation?: ValuationData,
+): SensitivityView {
   const rows = signals.map<SensitivityRow>((signal) => {
     const rule = SIGNAL_THRESHOLDS[signal.key];
     const unit = sensitivityGapUnit(signal.key);
     const distance = signal.value === null ? null : Math.abs(rule.triggerAt - signal.value);
     const digits = signal.key === "vix" ? 2 : signal.key === "fearGreed" ? 0 : 1;
-    const gapLabel =
+    const baseGapLabel =
       signal.value === null || distance === null
         ? "暂无数据"
         : signal.state === "triggered"
           ? `距退出 ${distance.toFixed(digits)}${unit}`
           : `距触发 ${distance.toFixed(digits)}${unit}`;
+    const isValuationSuppress =
+      signal.key === "pePercentile" &&
+      signal.state !== "stale" &&
+      signal.value !== null &&
+      signal.value >= 80;
+    const gapLabel =
+      signal.state === "stale"
+        ? "数据陈旧，不参与倍率"
+        : isValuationSuppress
+          ? `${baseGapLabel}（高估值压制区）`
+          : baseGapLabel;
     const stateLabel =
       signal.state === "triggered"
         ? "已触发"
@@ -899,7 +965,7 @@ function buildSensitivity(signals: SignalEvaluation[], decision: ReturnType<type
       name: SIGNAL_NAMES[signal.key],
       valueLabel: sensitivityValueLabel(signal.key, signal.value),
       triggerLabel: rule.triggerCondition,
-      gapLabel: signal.state === "stale" ? "数据陈旧，不参与倍率" : gapLabel,
+      gapLabel,
       stateLabel,
       tone: stateTone(signal.state),
     };
@@ -912,12 +978,19 @@ function buildSensitivity(signals: SignalEvaluation[], decision: ReturnType<type
   if (decision.status === "insufficient") {
     parts.push("数据缺失达到 2 项以上，倍率按规则退回 1×；补齐数据后本表会自动更新。");
   } else {
+    if (decision.status === "valuation") {
+      const estTag = valuation?.isEstimated ? "（Multpl 含近期财报估算口径）" : "";
+      parts.push(
+        `估值优先压制生效（${decision.valuationBand ?? "高估值区间"}${estTag}）：按纪律采用 ${decision.multiplier}，不因情绪加码`,
+      );
+    }
     if (triggeredHigh.length > 0) parts.push(`高置信触发：${triggeredHigh.map((s) => SIGNAL_NAMES[s.key]).join("、")}`);
     if (triggeredLow.length > 0)
-      parts.push(`低置信触发：${triggeredLow.map((s) => SIGNAL_NAMES[s.key]).join("、")}（单独一项只到 1.5×，需第二项确认）`);
+      parts.push(`低置信触发：${triggeredLow.map((s) => SIGNAL_NAMES[s.key]).join("、")}（需跨维度指标确认才升 2×）`);
     if (near.length > 0) parts.push(`观察区：${near.map((s) => SIGNAL_NAMES[s.key]).join("、")}`);
-    if (triggeredHigh.length === 0 && triggeredLow.length === 0 && near.length === 0)
+    if (decision.status !== "valuation" && triggeredHigh.length === 0 && triggeredLow.length === 0 && near.length === 0) {
       parts.push("六项信号都远离临界值");
+    }
     parts.push(`当前规则判定为 ${decision.multiplier}。`);
   }
 
@@ -941,33 +1014,35 @@ export function buildMultiplierHistory(records: DashboardSnapshotRecord[], qqq: 
     tone: MULTIPLIER_TONE[record.multiplier] ?? "normal",
   }));
   const rangeLabel =
-    points.length === 0
+    byDay.length === 0
       ? "暂无历史快照"
-      : points.length === 1
-        ? `仅 1 个交易日记录（${points[0]?.date}）`
-        : `${points[0]?.date} ～ ${points.at(-1)?.date} · ${points.length} 个交易日`;
-  const latestPoint = points.at(-1) ?? null;
-  const latestDate = latestPoint?.date ?? null;
+      : byDay.length === 1
+        ? `仅 1 个交易日记录（${byDay[0]?.marketDate}）`
+        : byDay.length <= 12
+          ? `${byDay[0]?.marketDate} ～ ${byDay.at(-1)?.marketDate} · ${byDay.length} 个交易日`
+          : `最近 12 日（${points[0]?.date} ～ ${points.at(-1)?.date}）· 累计记录 ${byDay.length} 个交易日`;
+  const latestRecord = byDay.at(-1) ?? null;
+  const latestDate = latestRecord?.marketDate ?? null;
   let referenceDate: string | null = null;
-  if (latestPoint?.multiplier === "2×") {
-    // 取当前这段连续 2× 的起点，而不是“今天”本身。
-    let index = points.length - 1;
-    while (index > 0 && points[index - 1]?.multiplier === "2×") index -= 1;
-    referenceDate = points[index]?.date ?? null;
+  if (latestRecord?.multiplier === "2×") {
+    // 在完整按交易日去重序列里回溯本轮连续 2× 的起点，避免超过 12 个交易日时被截断。
+    let index = byDay.length - 1;
+    while (index > 0 && byDay[index - 1]?.multiplier === "2×") index -= 1;
+    referenceDate = byDay[index]?.marketDate ?? null;
   } else {
-    referenceDate = [...points].reverse().find((point) => point.multiplier === "2×")?.date ?? null;
+    referenceDate = [...byDay].reverse().find((record) => record.multiplier === "2×")?.marketDate ?? null;
   }
   const last2xLabel =
-    points.length < 2
-      ? `当前倍率：${latestPoint?.multiplier ?? "—"}（${latestDate ?? "—"}）`
+    byDay.length < 2
+      ? `当前倍率：${latestRecord?.multiplier ?? "—"}（${latestDate ?? "—"}）`
       : referenceDate
-        ? latestPoint?.multiplier === "2×"
+        ? latestRecord?.multiplier === "2×"
           ? `当前 2× 从 ${referenceDate} 开始`
           : `上次 2×：${referenceDate}`
         : "还没有出现过 2×";
   const bars = qqq.bars;
   let sinceLabel = "之后 QQQ 涨跌：暂无数据";
-  if (points.length < 2) {
+  if (byDay.length < 2) {
     sinceLabel = "至少要两个交易日的记录，才能算出「之后涨了多少」。";
   } else if (referenceDate === latestDate) {
     sinceLabel = "这是 2× 的第一天，之后涨跌要看下一次收盘。";
@@ -984,7 +1059,6 @@ export function buildMultiplierHistory(records: DashboardSnapshotRecord[], qqq: 
     rangeLabel,
     last2xLabel,
     sinceLabel,
-    insufficientLabel: null,
   };
 }
 
@@ -1049,7 +1123,7 @@ function buildStrategyData(args: {
       { label: "今日操作建议", value: actionText, prominent: true },
     ],
     history: args.history,
-    sensitivity: buildSensitivity(args.signals, args.decision),
+    sensitivity: buildSensitivity(args.signals, args.decision, args.valuation),
     disciplineTitle: strategySection.disciplineTitle,
     disciplineSubtitle: strategySection.disciplineSubtitle,
     disciplineItems: strategySection.disciplineItems,
@@ -1074,21 +1148,21 @@ function collectNotices(args: {
   if (args.termStructure.error) notices.push(`Cboe 期限结构: ${args.termStructure.error}`);
   if (args.tailRisk.error) notices.push(`Cboe SKEW/VVIX: ${args.tailRisk.error}`);
   if (args.creditSpread.error) notices.push(`FRED 高收益债 OAS: ${args.creditSpread.error}`);
-  if (args.breadth.error) notices.push(`Twelve Data RSP: ${args.breadth.error}`);
+  if (args.breadth.error) notices.push(`市场宽度 RSP: ${args.breadth.error}`);
   if (args.vixQuoteError) notices.push(`VIX 盘中报价: ${args.vixQuoteError}（已回退到日线收盘）`);
 
   const fallbackCounts = new Map<string, number>();
   Object.values(args.seriesByKey).forEach((series) => {
     if (series.bars.length === 0) return;
-    // Cboe 是 VIX 的既有取数路径，不算兜底换源。
-    if (!series.source || series.source === "Twelve Data" || series.source === "Cboe") return;
+    const primarySource = series.key === "vix" ? "Cboe" : "Twelve Data";
+    if (!series.source || series.source === primarySource) return;
     fallbackCounts.set(series.source, (fallbackCounts.get(series.source) ?? 0) + 1);
   });
   if (fallbackCounts.size > 0) {
     const detail = Array.from(fallbackCounts.entries())
       .map(([source, count]) => `${source} ${count} 项`)
       .join("、");
-    notices.push(`行情已切换到备用源：${detail}（Twelve Data 限流或不可用时自动切换，不影响计算结果）`);
+    notices.push(`行情已切换到备用源：${detail}（主数据源限流或不可用时自动切换，不影响计算结果）`);
   }
 
   return notices;
@@ -1096,7 +1170,8 @@ function collectNotices(args: {
 
 export async function buildDashboardData({ forceRefresh = false } = {}): Promise<DashboardPayload> {
   const [
-    initialSeries,
+    equitySeries,
+    cboeVix,
     fearGreed,
     valuation,
     termStructureInputs,
@@ -1107,6 +1182,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     macroResult,
   ] = await Promise.all([
     fetchAllMarketSeries(forceRefresh),
+    fetchCboeVixHistory(forceRefresh),
     fetchCnnFearGreed(forceRefresh),
     fetchSpyValuation(forceRefresh),
     fetchCboeTermStructureInputs(forceRefresh),
@@ -1117,12 +1193,14 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     fetchMacroView(forceRefresh),
   ]);
 
-  const vix = await resolveVixSeries(initialSeries.vix, forceRefresh);
+  const vix = await resolveVixSeries(cboeVix, forceRefresh, () =>
+    fetchTwelveDataSeries("vix", VIX_INSTRUMENT.providerSymbol, forceRefresh),
+  );
   const vixQuote = vixQuoteResult.quote;
   const termStructure = buildTermStructure(vix, termStructureInputs);
   const tailRisk = buildTailRisk(tailRiskInputs);
   const creditSpread = buildCreditSpread(creditSpreadInputs);
-  const seriesByKey = { ...initialSeries, vix };
+  const seriesByKey: Record<MarketKey, MarketSeries> = { ...equitySeries, vix };
   const qqq = seriesByKey.qqq;
   const spy = seriesByKey.spy;
   const breadth = buildBreadth(spy.bars, breadthInputs);
@@ -1152,6 +1230,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
     percentile: valuation.percentile,
     stale: valuation.stale,
     ageDays: valuation.ageDays,
+    isEstimated: valuation.isEstimated,
   });
   const notices = collectNotices({
     seriesByKey,
@@ -1196,6 +1275,7 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
       asOf: valuation.currentDate,
       ageDays: valuation.ageDays,
       stale: valuation.stale,
+      estimated: valuation.isEstimated,
       participates: !valuation.stale && valuation.percentile !== null,
     },
     fearGreed: {
@@ -1260,20 +1340,22 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
   }
   const historyRecords = await readSnapshots();
   const now = new Date();
+  const qqqSource = qqq.bars.length > 0 ? qqq.source : "数据源暂无";
 
   return {
     status,
     lastUpdated: formatDateTime(now),
     generatedAt: now.getTime(),
-    indexSummaries: buildIndexSummaries(seriesByKey),
+    indexSummaries: buildIndexSummaries(equitySeries),
     indexConclusion: buildIndexConclusion({
       valuation,
       qqqDistance200,
       qqqMomentum,
+      qqqSource,
       strategyMultiplier: decision.multiplier,
       strategyReason: decision.reason,
     }),
-    relativeStrength: buildRelativeStrength(seriesByKey),
+    relativeStrength: buildRelativeStrength(equitySeries),
     macro: macroResult.view,
     sentimentMetrics,
     termStructure: buildTermStructureView(termStructure),
@@ -1303,12 +1385,12 @@ export async function buildDashboardData({ forceRefresh = false } = {}): Promise
 
 const unstableDashboardData = unstable_cache(
   async () => buildDashboardData({ forceRefresh: false }),
-  ["us-stock-dashboard-real-data-v7"],
+  ["us-stock-dashboard-real-data-v8"],
   { revalidate: MARKET_CACHE_SECONDS },
 );
 
 /**
- * 进程内再兜一层缓存：首次构建要抓 7 个行情符号 + 估值/情绪/信用，耗时 10 秒左右，
+ * 进程内再兜一层缓存：首次构建要抓行情 + 估值/情绪/信用，耗时较长，
  * 并发请求必须共用同一个 Promise，否则会一起打爆免费额度。TTL 与 unstable_cache 一致。
  */
 let dashboardMemoryCache: { storedAt: number; pending: Promise<DashboardPayload> } | null = null;

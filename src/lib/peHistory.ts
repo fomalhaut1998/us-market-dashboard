@@ -19,6 +19,7 @@ export interface MonthlyPePoint {
   end: string;
   pe: number | null;
   percentile: number | null;
+  estimated: boolean;
 }
 
 export function latestOnOrBefore<T extends { date: string }>(values: T[], end: string) {
@@ -26,27 +27,31 @@ export function latestOnOrBefore<T extends { date: string }>(values: T[], end: s
 }
 
 /**
- * 每个月只取"该月内新出现的非估算 PE"：
- * 第一个月给出月末基准，之后没有新观测的月份返回 null（图上留空）。
- * 这样不会把同一个 PE 值重复画成一条连续几个月的假平线。
+ * 每个月只取当月区间内最新的一条 PE 观测：
+ * 第一个月取月末基准，之后没有新观测的月份返回 null（图上留空），
+ * 避免把同一个 PE 值重复画成连续几个月的假平线。
  */
 export function buildMonthlyPePoints(
   months: PeMonth[],
   history: HistoricalPePoint[],
 ): MonthlyPePoint[] {
+  const sorted = [...history].sort((left, right) => left.date.localeCompare(right.date));
+
   return months.map((month, index) => {
     const previousEnd = index === 0 ? "" : months[index - 1].end;
     const freshPoint =
       index === 0
-        ? latestOnOrBefore(history, month.end)
-        : (history.find((point) => point.date > previousEnd && point.date <= month.end) ?? null);
+        ? latestOnOrBefore(sorted, month.end)
+        : (sorted.filter((point) => point.date > previousEnd && point.date <= month.end).at(-1) ??
+          null);
     const pe = freshPoint?.pe ?? null;
 
     return {
       month: month.label,
       end: month.end,
       pe,
-      percentile: pe === null ? null : calculatePePercentile(pe, history),
+      percentile: pe === null ? null : calculatePePercentile(pe, sorted),
+      estimated: Boolean(freshPoint?.estimated),
     };
   });
 }

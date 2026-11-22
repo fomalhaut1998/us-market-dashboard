@@ -30,7 +30,9 @@ function MacroCard({ asset }: { asset: MacroAssetView }) {
         </p>
         <p className={`text-[0.78rem] font-black tabular-nums ${toneText[asset.changeTone]}`}>
           {asset.changeLabel}
-          <span className="ml-1 text-[0.55rem] font-bold tracking-[0.06em] text-tertiary">近20日</span>
+          <span className="ml-1 text-[0.55rem] font-bold tracking-[0.06em] text-tertiary">
+            {asset.changeWindowLabel ?? "近20日"}
+          </span>
         </p>
       </div>
 

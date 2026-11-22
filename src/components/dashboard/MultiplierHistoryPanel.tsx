@@ -1,4 +1,4 @@
-import { multiplierHistorySection } from "@/data/mockData";
+import { multiplierHistorySection } from "@/data/dashboardCopy";
 import type { MultiplierHistoryView, StatusTone } from "@/types/dashboard";
 import { SectionCard } from "./SectionCard";
 
@@ -40,11 +40,6 @@ export function MultiplierHistoryPanel({ data }: { data: MultiplierHistoryView }
         <p>{data.last2xLabel}</p>
         <p>{data.sinceLabel}</p>
       </div>
-      {data.insufficientLabel ? (
-        <p className="mt-2.5 rounded-2xl border border-dashed border-line px-4 py-3 text-[0.72rem] leading-5 font-semibold text-tertiary sm:text-xs">
-          {data.insufficientLabel}
-        </p>
-      ) : null}
     </SectionCard>
   );
 }

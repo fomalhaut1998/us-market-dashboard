@@ -1,7 +1,7 @@
 import {
   sentimentSection,
   statusLegend,
-} from "@/data/mockData";
+} from "@/data/dashboardCopy";
 import type { DashboardPayload } from "@/types/dashboard";
 import { BreadthPanel } from "./BreadthPanel";
 import { CreditSpreadPanel } from "./CreditSpreadPanel";

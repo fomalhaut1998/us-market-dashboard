@@ -76,6 +76,40 @@ export function parseMultplPeTable(html: string): ParsedPePoint[] {
   );
 }
 
+/**
+ * 截取近 5 年月度 PE 历史并按 YYYY-MM 去重：
+ * 同月内优先取最新的非估算实际值；仅当该月全部为估算值时取最新估算值，保证最近数月不留空白断档。
+ */
+export function monthlyHistoryInFiveYears(points: ParsedPePoint[], latestDate: string): HistoricalPePoint[] {
+  const cutoffDate = new Date(`${latestDate}T00:00:00Z`);
+  cutoffDate.setUTCFullYear(cutoffDate.getUTCFullYear() - 5);
+  const cutoff = cutoffDate.toISOString().slice(0, 10);
+
+  const byMonth = new Map<string, ParsedPePoint>();
+  const sorted = [...points]
+    .filter((point) => point.date >= cutoff && point.date <= latestDate)
+    .sort((left, right) => left.date.localeCompare(right.date));
+
+  for (const point of sorted) {
+    const monthKey = point.date.slice(0, 7);
+    const existing = byMonth.get(monthKey);
+    if (!existing) {
+      byMonth.set(monthKey, point);
+      continue;
+    }
+    // 实际值始终优先于估算值；同类别则取日期更晚的观测。
+    if (existing.estimated && !point.estimated) {
+      byMonth.set(monthKey, point);
+    } else if (existing.estimated === point.estimated && point.date >= existing.date) {
+      byMonth.set(monthKey, point);
+    }
+  }
+
+  return [...byMonth.values()]
+    .sort((left, right) => left.date.localeCompare(right.date))
+    .map(({ date, pe, estimated }) => ({ date, pe, estimated }));
+}
+
 export function fiveYearActualHistory(points: ParsedPePoint[], latestDate: string): HistoricalPePoint[] {
   const cutoffDate = new Date(`${latestDate}T00:00:00Z`);
   cutoffDate.setUTCFullYear(cutoffDate.getUTCFullYear() - 5);
@@ -95,8 +129,7 @@ function daysBetween(fromDate: string, toDate: string) {
 
 /**
  * 判断 PE 数据的时效。
- * Multpl 会按月更新，但最近数月常被标注为估算值并被剔除，
- * 所以"最新非估算值"本身可能已经是几个月前的数字。
+ * 超过 VALUATION_STALE_DAYS 时标为陈旧，不参与倍率计算。
  */
 export function assessPeFreshness(
   currentDate: string | null,
@@ -110,20 +143,62 @@ export function assessPeFreshness(
   };
 }
 
+export interface ActiveValuationSelection {
+  active: ParsedPePoint | null;
+  latestActual: ParsedPePoint | null;
+  ageDays: number | null;
+  stale: boolean;
+  isEstimated: boolean;
+}
+
+/**
+ * 优先选用最新的非估算实际值；当实际值已超过陈旧门槛时，
+ * 回退到 Multpl 提供的近期财报估算值并明确标注估算口径，避免估值压制长期休眠。
+ */
+export function selectActiveValuationPoint(
+  points: ParsedPePoint[],
+  referenceDate = new Date().toISOString().slice(0, 10),
+): ActiveValuationSelection {
+  const sorted = [...points].sort((left, right) => left.date.localeCompare(right.date));
+  const latestActual = sorted.filter((point) => !point.estimated).at(-1) ?? null;
+  const latestAny = sorted.at(-1) ?? null;
+
+  if (latestActual) {
+    const actualFreshness = assessPeFreshness(latestActual.date, referenceDate);
+    if (!actualFreshness.stale) {
+      return {
+        active: latestActual,
+        latestActual,
+        ageDays: actualFreshness.ageDays,
+        stale: false,
+        isEstimated: false,
+      };
+    }
+  }
+
+  if (!latestAny) {
+    return {
+      active: null,
+      latestActual,
+      ageDays: null,
+      stale: false,
+      isEstimated: false,
+    };
+  }
+
+  const anyFreshness = assessPeFreshness(latestAny.date, referenceDate);
+  return {
+    active: latestAny,
+    latestActual,
+    ageDays: anyFreshness.ageDays,
+    stale: anyFreshness.stale,
+    isEstimated: Boolean(latestAny.estimated),
+  };
+}
+
 export async function fetchSpyValuation(forceRefresh: boolean): Promise<ValuationData> {
-  const base: Omit<
-    ValuationData,
-    | "currentPe"
-    | "currentDate"
-    | "history"
-    | "percentile"
-    | "historySupported"
-    | "error"
-    | "ageDays"
-    | "stale"
-  > = {
-    source: "Multpl",
-    dataKind: "标普500 PE（月度，最新非估算值）",
+  const base = {
+    source: "Multpl" as const,
   };
 
   try {
@@ -138,29 +213,38 @@ export async function fetchSpyValuation(forceRefresh: boolean): Promise<Valuatio
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const points = parseMultplPeTable(await response.text());
-    const latestActual = points.filter((point) => !point.estimated).at(-1) ?? null;
-    if (!latestActual) throw new Error("页面中没有可用的非估算 PE 数据");
+    const selection = selectActiveValuationPoint(points);
+    if (!selection.active) throw new Error("页面中没有可用的 PE 数据");
 
-    const history = fiveYearActualHistory(points, latestActual.date);
+    const history = monthlyHistoryInFiveYears(points, selection.active.date);
     if (history.length === 0) throw new Error("页面中没有可用的近5年 PE 历史");
 
     return {
       ...base,
-      currentPe: latestActual.pe,
-      currentDate: latestActual.date,
+      currentPe: selection.active.pe,
+      currentDate: selection.active.date,
+      isEstimated: selection.isEstimated,
+      latestActualPe: selection.latestActual?.pe ?? null,
+      latestActualDate: selection.latestActual?.date ?? null,
       history,
-      percentile: calculatePePercentile(latestActual.pe, history),
+      percentile: calculatePePercentile(selection.active.pe, history),
+      dataKind: selection.isEstimated ? "标普500 PE（含近期财报估算）" : "标普500 PE（月度实际值）",
       historySupported: true,
       error: null,
-      ...assessPeFreshness(latestActual.date),
+      ageDays: selection.ageDays,
+      stale: selection.stale,
     };
   } catch (error) {
     return {
       ...base,
       currentPe: null,
       currentDate: null,
+      isEstimated: false,
+      latestActualPe: null,
+      latestActualDate: null,
       history: [],
       percentile: null,
+      dataKind: "标普500 PE（月度实际值）",
       historySupported: false,
       error: error instanceof Error ? error.message : "Multpl 估值请求失败",
       ageDays: null,

@@ -1,4 +1,4 @@
-import { indexSection } from "@/data/mockData";
+import { indexSection } from "@/data/dashboardCopy";
 import type { DashboardPayload } from "@/types/dashboard";
 import { IndexCard } from "./IndexCard";
 import { MacroPanel } from "./MacroPanel";

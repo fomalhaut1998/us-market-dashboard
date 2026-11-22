@@ -48,24 +48,18 @@ export const indexConclusionSection = {
 export const relativeStrengthSection = {
   title: "相对强弱（相对 SPY 的超额）",
   description:
-    "把各标的近 20 / 60 个交易日的涨跌幅减去 SPY 同期涨跌幅，单位是百分点：正数说明跑赢大盘，负数说明跑输。用来判断这波行情是普涨，还是少数在拉。",
+    "把各标的与 SPY 对齐共同交易日后，计算近 20 / 60 个交易日涨跌幅相对 SPY 的超额（单位：百分点）：正数跑赢大盘，负数跑输。用来判断行情是普涨，还是少数权重在拉。",
 };
 
 export const multiplierHistorySection = {
   title: "倍率轨迹",
   description:
-    "每次收盘后的计算都会写一条本地快照（data/snapshots.jsonl）；这里按交易日去重，只看倍率本身怎么变。",
+    "每次收盘后的计算都会写一条历史快照（本地默认 data/snapshots.jsonl，也支持 Upstash Redis）；这里按交易日去重，只看倍率本身怎么变。",
 };
 
 export const sensitivitySection = {
   title: "触发敏感性",
   description: "每个信号离触发还差多少、已触发的离退出还差多少。都是确定性算术，不预测方向。",
-};
-
-export const tradingLocationsSection = {
-  title: "美国主要交易地点",
-  description:
-    "以点阵地球展示美国交易所与市场基础设施的代表性地点。地球是纯装饰背景，不响应鼠标或键盘；以下为固定地点信息，不代表实时交易状态。",
 };
 
 export const tradingLocations: TradingLocationData[] = [
@@ -163,7 +157,7 @@ export const signalGuideItems: SignalGuideItem[] = [
     name: "VIX（波动率指数）",
     meaning:
       "标普500未来 30 天的隐含波动率，由期权价格反推出来——本质是「恐慌保险」的报价：买保险的人越多、越急，它越高。",
-    calc: "Cboe 官方 VIX 日线历史；盘中现价用 Yahoo Finance / Cboe 延迟报价（约 15 分钟），点击「刷新数据」更新。",
+    calc: "日线历史直连 Cboe 官方收盘；盘中现价用 Yahoo Finance / Cboe 延迟报价（约 15 分钟），点击「刷新数据」更新。",
     bands: [
       { tone: "triggered", range: "≥ 30", label: "触发：市场已经在为恐慌付费" },
       { tone: "near", range: "22 – 30", label: "观察：情绪开始紧张" },
@@ -189,33 +183,33 @@ export const signalGuideItems: SignalGuideItem[] = [
     name: "RSI(6)（六日相对强弱）",
     meaning:
       "近 6 个交易日的涨跌力量对比，0–100：越低说明最近卖压越集中。卡片上的判定值取 QQQ（纳指代理），副行同时给 SPY。",
-    calc: "本地用 Wilder 平滑对 Twelve Data 日线现算 6 日 RSI，不依赖第三方指标值。",
+    calc: "本地用 Wilder 平滑对日线（Twelve Data 或备用源）现算 6 日 RSI，不依赖第三方指标值。",
     bands: [
       { tone: "triggered", range: "≤ 22", label: "触发：短线超卖" },
       { tone: "near", range: "22 – 28", label: "观察：偏弱" },
       { tone: "normal", range: "> 28", label: "未触发：常态" },
     ],
     caveat:
-      "低置信信号：6 天窗口太短，单靠它顶到 2× 很容易被噪声骗。所以规则里 RSI 单独触发只给 1.5×，必须等第二项指标确认。",
+      "低置信信号：6 天窗口太短且与 QQQ 200 日均线同属价格维度。单独触发或仅同价格维度同时触发只给 1.5×，必须等跨维度第二项指标确认才能到 2×。",
   },
   {
     name: "PE 百分位（标普500 TTM PE 近5年分位）",
     meaning:
       "标普500 滚动市盈率在过去 5 年里排第几：20% 表示比过去五年 80% 的时间都便宜，80% 表示比八成时间都贵。",
     calc:
-      "Multpl 月度 PE 表，剔除以 † 标注的估算值、只留实际值；分位 = 近 5 年非估算样本中不高于当前值的占比。",
+      "Multpl 月度 PE 表（同月优先取非估算实际值）；当实际值滞后超过 45 天时，回退使用近期财报估算值（† 标注）并明确标明口径，若仍超过 45 天才标记陈旧。",
     bands: [
       { tone: "triggered", range: "≤ 20%", label: "触发：估值便宜" },
       { tone: "near", range: "20% – 30%", label: "观察：偏低" },
       { tone: "normal", range: "> 30%", label: "未触发：正常 / 偏贵（≥80% 压到 0.5×，≥90% 压到 0.25×）" },
     ],
     caveat:
-      "月度发布、天生滞后。滞后超过 45 天只标注不参与倍率——所以你常看到「已滞后 N 天，未参与倍率」。它是唯一会「反向」压低倍率的指标。",
+      "月度发布且存在季度财报估算期：启用近期估算口径时会明确标注，若超过 45 天仍未更新则只展示、不参与倍率。它是唯一会「反向」压低倍率的指标。",
   },
   {
     name: "52 周回撤",
     meaning: "当前收盘价相对过去 52 周最高收盘跌了多少，回答「离前高还有多远」。",
-    calc: "Twelve Data 日线，取最近 252 个交易日的最高收盘作基准，按 QQQ 计算。",
+    calc: "取最近 252 个交易日的最高收盘作基准，按 QQQ 日线本地计算。",
     bands: [
       { tone: "triggered", range: "≤ -20%", label: "触发：技术性熊市门槛" },
       { tone: "near", range: "-15% – -20%", label: "观察：中度回撤" },
@@ -228,14 +222,14 @@ export const signalGuideItems: SignalGuideItem[] = [
     name: "QQQ 200 日均线",
     meaning:
       "QQQ 最新收盘相对过去 200 个交易日收盘均线的偏离度。200 日线是常用的长期趋势分界：价格在均线上方，说明长期趋势仍偏强；跌破越深，说明中期动能越弱。",
-    calc: "Twelve Data 日线，取最近 200 个交易日收盘均值，最新收盘 ÷ 均值 − 1，本地计算。",
+    calc: "取最近 200 个交易日收盘均值，最新收盘 ÷ 均值 − 1，本地计算。",
     bands: [
       { tone: "triggered", range: "≤ -8%", label: "触发：深度跌破长期均线" },
       { tone: "near", range: "-8% – -3%", label: "观察：跌破但未到极端" },
       { tone: "normal", range: "> -3%", label: "未触发：均线附近或上方" },
     ],
     caveat:
-      "低置信信号：200 日线是慢变量，和 52 周回撤高度相关（约 0.85），两项常一起亮。它擅长确认「趋势已经走坏」，不擅长抓短线反弹；单独触发只给 1.5×，需要第二项确认。",
+      "低置信信号：200 日线是慢变量，和 52 周回撤高度相关（约 0.85），且与 RSI(6) 同属价格维度。两项同维度低置信指标同时触发只给 1.5×，需要波动率/情绪/估值等跨维度确认才升到 2×。",
   },
 ];
 
@@ -262,7 +256,7 @@ export const creditSpreadSection = {
 export const vixPeHistorySection = {
   title: "过去六个月 VIX 与 PE 分位",
   description:
-    "对比真实月末 VIX 与标普500月度 PE 近5年分位；PE 每月只取当月新出现的非估算值，没有新数据的月份留空，不再重复上月数值。",
+    "对比真实月末 VIX 与标普500月度 PE 近5年分位；每月优先取实际值，近期财报尚未落定月份取最新估算值（虚线区分），完全缺数月份留空。",
   vixLabel: "VIX（月末）",
   peLabel: "标普500 PE近5年分位",
 };
@@ -270,7 +264,7 @@ export const vixPeHistorySection = {
 export const strategySection = {
   title: "智能定投策略（估值动能 DCA）",
   description:
-    "五档投入倍率（0.25–2×）：PE 分位 ≥80% / ≥90% 时按估值档压到 0.5× / 0.25×；无估值压力时，一项高置信指标触发（或两项任意指标同时触发）→ 2×；低置信指标单项触发、或仅进入观察区 → 1.5×。陈旧数据不参与计算。",
+    "五档投入倍率（0.25–2×）：PE 分位 ≥80% / ≥90% 时按估值档压到 0.5× / 0.25×；无估值压力时，一项高置信指标触发、或两项不同维度指标互相确认 → 2×；仅单项或同维度低置信触发、或仅进入观察区 → 1.5×。陈旧数据不参与计算。",
   levels: [
     { value: "0.25×", label: "估值极高\n微量投入" },
     { value: "0.5×", label: "估值偏高\n减量" },
@@ -282,10 +276,10 @@ export const strategySection = {
   disciplineSubtitle: "买入纪律",
   disciplineItems: [
     "严格按定投指标执行常规定投，不因单日涨跌临时改变规则。",
-    "一项高置信指标触发，或任意两项指标同时触发（绿）→ 2×；只有 RSI(6) 或 QQQ 200日均线单项触发时按 1.5× 处理，等第二项确认。",
+    "一项高置信指标触发，或两项不同维度指标互相确认（绿）→ 2×；只有 RSI(6) 或 QQQ 200日均线单项触发（或仅同价格维度低置信同时触发）时按 1.5× 处理，等跨维度第二项确认。",
     "没有触发但至少一项进入观察区（黄）→ 1.5×。",
     "PE 近5年分位 ≥ 80% → 0.5×、≥ 90% → 0.25×：估值越高投入越少，不为情绪加码。",
-    "数据陈旧（PE 滞后超过 45 天）只标注、不参与倍率计算。",
+    "数据陈旧（滞后超过 45 天）只标注、不参与倍率计算。",
     "两项以上真实数据缺失时回到 1×，并明确标记“数据不足”。",
     "不追涨、不恐慌割肉，不使用一次性重仓替代分批布局。",
   ],

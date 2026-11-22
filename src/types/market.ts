@@ -1,5 +1,7 @@
 export type MarketKey = "spy" | "qqq" | "dia" | "soxx" | "iwm" | "ixic" | "vix";
 
+export type EquityMarketKey = Exclude<MarketKey, "vix">;
+
 export interface DailyBar {
   date: string;
   open: number;
@@ -54,18 +56,22 @@ export interface FearGreedData {
 export interface HistoricalPePoint {
   date: string;
   pe: number;
+  estimated?: boolean;
 }
 
 export interface ValuationData {
   currentPe: number | null;
   currentDate: string | null;
+  isEstimated: boolean;
+  latestActualPe: number | null;
+  latestActualDate: string | null;
   history: HistoricalPePoint[];
   percentile: number | null;
   source: "Multpl";
   dataKind: string;
   historySupported: boolean;
   error: string | null;
-  /** 最新非估算 PE 距今天数；没有数据时为 null。 */
+  /** 当前选用 PE 距今天数；没有数据时为 null。 */
   ageDays: number | null;
   /** 数据是否已陈旧（超过 VALUATION_STALE_DAYS）：陈旧值只展示，不参与倍率计算。 */
   stale: boolean;
@@ -84,11 +90,15 @@ export type SignalState = "triggered" | "near" | "normal" | "missing" | "stale";
 /** 信号置信度：低置信指标单独触发时不能把倍率顶到 2×。 */
 export type SignalConfidence = "high" | "low";
 
+/** 信号所属独立维度：用于防止同维度低置信指标自我确认。 */
+export type SignalDimension = "volatility" | "sentiment" | "valuation" | "price";
+
 export interface SignalEvaluation {
   key: SignalMetricKey;
   value: number | null;
   state: SignalState;
   confidence: SignalConfidence;
+  dimension: SignalDimension;
 }
 
 /** 波动率期限结构：9 天 / 30 天 / 3 个月 VIX 指数的相对位置。 */
